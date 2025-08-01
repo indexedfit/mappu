@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Design‑Style Satellite Map</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <link href="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    html,body{margin:0;height:100%;overflow:hidden;-webkit-user-select:none;user-select:none}
+    #map{position:absolute;inset:0}
+    #selection{position:absolute;border:1px dashed #4a90e2;background:rgba(74,144,226,.12);pointer-events:none;display:none;z-index:10}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="selection"></div>
+
+  <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
+  <script>
+    /* =====================
+       Tunable constants
+       ===================== */
+    const PAN_SENSITIVITY      = 1.25;   // >1 pans farther per scroll tick
+    const WHEEL_ZOOM_DIVISOR   = 80;     // smaller = faster zoom (was 100)
+    const PINCH_ZOOM_THRESHOLD = 0.03;   // 3‑% change before pinch zoom kicks in
+
+    /* === 1. Map === */
+    const map = new maplibregl.Map({
+      container: "map",
+      style: {
+        version: 8,
+        sources: {
+          sat: {
+            type: "raster",
+            tiles: [
+              "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            ],
+            tileSize: 256,
+            attribution: "Tiles © Esri & contributors"
+          }
+        },
+        layers: [{ id: "sat", type: "raster", source: "sat" }]
+      },
+      center: [0, 20],
+      zoom: 3,
+      attributionControl: true
+    });
+
+    /* Disable built‑in gestures; custom Figma‑style handlers below */
+    map.dragPan.disable();
+    map.touchZoomRotate.disable();
+    map.doubleClickZoom.enable();
+
+    /* === 2. Touch pinch+pan (mobile / touchscreen) === */
+    const container = map.getCanvasContainer();
+    const touches   = new Map();
+    let prevCenter, prevDist;
+
+    const midpoint = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+    const distance = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+    container.addEventListener("pointerdown", e => {
+      if (e.pointerType !== "touch") return;
+      touches.set(e.pointerId, e);
+      container.setPointerCapture(e.pointerId);
+      if (touches.size === 2) {
+        const [p1, p2] = [...touches.values()];
+        prevCenter = midpoint(p1, p2);
+        prevDist   = distance(p1, p2);
+      }
+    }, { passive: false });
+
+    container.addEventListener("pointermove", e => {
+      if (!touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, e);
+      if (touches.size !== 2) return;
+
+      const [p1, p2] = [...touches.values()];
+      const currCenter = midpoint(p1, p2);
+      const currDist   = distance(p1, p2);
+
+      // Pan (note sign so drag direction feels natural)
+      map.panBy([ prevCenter.x - currCenter.x, prevCenter.y - currCenter.y ], { animate: false });
+      prevCenter = currCenter;
+
+      // Pinch‑zoom
+      const scale = currDist / prevDist;
+      if (Math.abs(scale - 1) > PINCH_ZOOM_THRESHOLD) {
+        map.zoomTo(
+          map.getZoom() + Math.log2(scale),
+          { around: map.unproject([currCenter.x, currCenter.y]), animate: false }
+        );
+        prevDist = currDist;
+      }
+    }, { passive: false });
+
+    ["pointerup", "pointercancel", "pointerleave"].forEach(ev =>
+      container.addEventListener(ev, e => {
+        touches.delete(e.pointerId);
+        if (touches.size < 2) {
+          prevCenter = prevDist = undefined;
+        }
+      })
+    );
+
+    /* === 3. Trackpad wheel (desktop) === */
+    container.addEventListener("wheel", e => {
+      const isPinch = e.ctrlKey || e.metaKey; // macOS signals pinch‑zoom with ctrl/meta
+      if (isPinch) {
+        const zoomDelta = -e.deltaY / WHEEL_ZOOM_DIVISOR;
+        map.zoomTo(
+          map.getZoom() + zoomDelta,
+          { around: map.unproject([e.clientX, e.clientY]), animate: false }
+        );
+      } else {
+        // Natural, inverted scrolling with adjustable sensitivity
+        map.panBy([
+          e.deltaX * PAN_SENSITIVITY,
+          e.deltaY * PAN_SENSITIVITY
+        ], { animate: false });
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    /* === 4. Mouse selection rectangle === */
+    const sel    = document.getElementById("selection");
+    const canvas = map.getCanvas();
+    let selecting = false, sx, sy;
+
+    canvas.addEventListener("mousedown", e => {
+      if (e.button) return; // left‑button only
+      selecting = true;
+      sx = e.clientX; sy = e.clientY;
+      Object.assign(sel.style, { left: sx + "px", top: sy + "px", width: 0, height: 0, display: "block" });
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", e => {
+      if (!selecting) return;
+      const x = Math.min(e.clientX, sx);
+      const y = Math.min(e.clientY, sy);
+      Object.assign(sel.style, {
+        left:   x + "px",
+        top:    y + "px",
+        width:  Math.abs(e.clientX - sx) + "px",
+        height: Math.abs(e.clientY - sy) + "px"
+      });
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (!selecting) return;
+      selecting = false;
+      sel.style.display = "none";
+
+      const r  = sel.getBoundingClientRect();
+      if (!r.width || !r.height) return; // click only
+      const nw = map.unproject([r.left,  r.top   ]);
+      const se = map.unproject([r.right, r.bottom]);
+      console.log("Selected bounds", { north: nw.lat, west: nw.lng, south: se.lat, east: se.lng });
+    });
+
+    /* Block context‑menu like Figma/Excalidraw */
+    canvas.addEventListener("contextmenu", e => e.preventDefault());
+  </script>
+</body>
+</html>
+
