@@ -43,7 +43,7 @@ export default function MapCanvas() {
       },
       center: [0, 20],
       zoom: 3,
-      attributionControl: true,
+      attributionControl: false,
     });
 
     mapRef.current = map;
@@ -309,7 +309,6 @@ export default function MapCanvas() {
     if (!map || !svgRef.current) return;
     
     const svg = svgRef.current;
-    const container = map.getCanvasContainer();
     
     let drawing = false;
     let startPoint: { x: number; y: number } | null = null;
@@ -350,7 +349,7 @@ export default function MapCanvas() {
           currentElement.setAttribute("stroke-dasharray", "4 2");
           svg.appendChild(currentElement);
         }
-      } else if (tool !== "cursor") {
+      } else {
         drawing = true;
         startPoint = point;
         

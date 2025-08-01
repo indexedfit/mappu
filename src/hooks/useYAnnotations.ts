@@ -19,7 +19,6 @@ export function useYArray<T>(yarr: any): [T[], (vals: T[]) => void] {
 
 export function useAnnotations() {
   const [annotations, setAnnotations] = useYArray<Annotation>(yAnnotations);
-  const [, setLog] = useYArray<LogEntry>(yLog);
 
   const add = (anno: Annotation) => {
     yAnnotations.push([anno]);
