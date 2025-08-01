@@ -18,11 +18,13 @@
   <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
   <script>
     /* =====================
-       Tunable constants
+       Tunable constants (mobile + desktop)
        ===================== */
-    const PAN_SENSITIVITY      = 1.25;   // >1 pans farther per scroll tick
-    const WHEEL_ZOOM_DIVISOR   = 80;     // smaller = faster zoom (was 100)
-    const PINCH_ZOOM_THRESHOLD = 0.03;   // 3‑% change before pinch zoom kicks in
+    const PAN_SENSITIVITY        = 1.25; // >1 pans farther per scroll pixel (desktop wheel + mobile 1‑finger)
+    const WHEEL_ZOOM_DIVISOR     = 80;   // smaller ⇒ faster pinch‑to‑zoom on trackpads
+    const PINCH_ZOOM_THRESHOLD   = 0.03; // 3‑% change before we zoom
+    const LONG_PRESS_MS          = 350;  // hold this long (ms) to start rectangle on touch
+    const LONG_PRESS_TOLERANCE   = 6;    // px you can wiggle before long‑press cancels
 
     /* === 1. Map === */
     const map = new maplibregl.Map({
@@ -46,24 +48,85 @@
       attributionControl: true
     });
 
-    /* Disable built‑in gestures; custom Figma‑style handlers below */
+    /* Disable MapLibre built‑ins; custom Figma‑style handlers below */
     map.dragPan.disable();
     map.touchZoomRotate.disable();
     map.doubleClickZoom.enable();
 
-    /* === 2. Touch pinch+pan (mobile / touchscreen) === */
-    const container = map.getCanvasContainer();
-    const touches   = new Map();
-    let prevCenter, prevDist;
+    /* === 2. Selection rectangle (shared) === */
+    const selBox  = document.getElementById("selection");
+    const canvas  = map.getCanvas();
+    let selecting = false, sx = 0, sy = 0;
+    const beginSelection = (x, y) => {
+      selecting = true;
+      sx = x; sy = y;
+      Object.assign(selBox.style, { left: sx + "px", top: sy + "px", width: 0, height: 0, display: "block" });
+    };
+    const updateSelection = (x, y) => {
+      const left = Math.min(x, sx);
+      const top  = Math.min(y, sy);
+      Object.assign(selBox.style, {
+        left:   left + "px",
+        top:    top  + "px",
+        width:  Math.abs(x - sx) + "px",
+        height: Math.abs(y - sy) + "px"
+      });
+    };
+    const finishSelection = () => {
+      if (!selecting) return;
+      selecting = false;
+      selBox.style.display = "none";
+      const r = selBox.getBoundingClientRect();
+      if (!r.width || !r.height) return; // tap only
+      const nw = map.unproject([r.left,  r.top   ]);
+      const se = map.unproject([r.right, r.bottom]);
+      console.log("Selected bounds", { north: nw.lat, west: nw.lng, south: se.lat, east: se.lng });
+    };
+
+    /* === 3. Desktop: mouse rectangle + trackpad wheel === */
+    canvas.addEventListener("mousedown", e => {
+      if (e.button) return; // left button only
+      beginSelection(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", e => selecting && updateSelection(e.clientX, e.clientY));
+    window.addEventListener("mouseup", finishSelection);
+
+    /* Trackpad wheel for pan / zoom */
+    map.getCanvasContainer().addEventListener("wheel", e => {
+      const isPinch = e.ctrlKey || e.metaKey; // macOS trackpad pinch sets these
+      if (isPinch) {
+        const zoomDelta = -e.deltaY / WHEEL_ZOOM_DIVISOR;
+        map.zoomTo(map.getZoom() + zoomDelta, { around: map.unproject([e.clientX, e.clientY]), animate: false });
+      } else {
+        map.panBy([ e.deltaX * PAN_SENSITIVITY, e.deltaY * PAN_SENSITIVITY ], { animate: false });
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    /* === 4. Mobile / touch: 1‑finger pan, 2‑finger pinch+pan, long‑press rectangle === */
+    const container   = map.getCanvasContainer();
+    const touches     = new Map();
+    let prevCenter, prevDist, prevSingle;
+    let longPressTimer = null;
 
     const midpoint = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
     const distance = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+    const clearLongPress = () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } };
 
     container.addEventListener("pointerdown", e => {
       if (e.pointerType !== "touch") return;
       touches.set(e.pointerId, e);
       container.setPointerCapture(e.pointerId);
-      if (touches.size === 2) {
+
+      if (touches.size === 1) {
+        prevSingle = e;
+        longPressTimer = setTimeout(() => {
+          beginSelection(e.clientX, e.clientY);
+        }, LONG_PRESS_MS);
+      } else if (touches.size === 2) {
+        clearLongPress();
         const [p1, p2] = [...touches.values()];
         prevCenter = midpoint(p1, p2);
         prevDist   = distance(p1, p2);
@@ -73,93 +136,51 @@
     container.addEventListener("pointermove", e => {
       if (!touches.has(e.pointerId)) return;
       touches.set(e.pointerId, e);
-      if (touches.size !== 2) return;
 
-      const [p1, p2] = [...touches.values()];
-      const currCenter = midpoint(p1, p2);
-      const currDist   = distance(p1, p2);
-
-      // Pan (note sign so drag direction feels natural)
-      map.panBy([ prevCenter.x - currCenter.x, prevCenter.y - currCenter.y ], { animate: false });
-      prevCenter = currCenter;
-
-      // Pinch‑zoom
-      const scale = currDist / prevDist;
-      if (Math.abs(scale - 1) > PINCH_ZOOM_THRESHOLD) {
-        map.zoomTo(
-          map.getZoom() + Math.log2(scale),
-          { around: map.unproject([currCenter.x, currCenter.y]), animate: false }
-        );
-        prevDist = currDist;
-      }
-    }, { passive: false });
-
-    ["pointerup", "pointercancel", "pointerleave"].forEach(ev =>
-      container.addEventListener(ev, e => {
-        touches.delete(e.pointerId);
-        if (touches.size < 2) {
-          prevCenter = prevDist = undefined;
+      if (touches.size === 1 && !selecting) {
+        // 1‑finger pan (cancel long‑press if moved too far)
+        if (Math.abs(e.clientX - prevSingle.clientX) > LONG_PRESS_TOLERANCE || Math.abs(e.clientY - prevSingle.clientY) > LONG_PRESS_TOLERANCE) {
+          clearLongPress();
         }
-      })
-    );
-
-    /* === 3. Trackpad wheel (desktop) === */
-    container.addEventListener("wheel", e => {
-      const isPinch = e.ctrlKey || e.metaKey; // macOS signals pinch‑zoom with ctrl/meta
-      if (isPinch) {
-        const zoomDelta = -e.deltaY / WHEEL_ZOOM_DIVISOR;
-        map.zoomTo(
-          map.getZoom() + zoomDelta,
-          { around: map.unproject([e.clientX, e.clientY]), animate: false }
-        );
-      } else {
-        // Natural, inverted scrolling with adjustable sensitivity
-        map.panBy([
-          e.deltaX * PAN_SENSITIVITY,
-          e.deltaY * PAN_SENSITIVITY
-        ], { animate: false });
+        map.panBy([ prevSingle.clientX - e.clientX, prevSingle.clientY - e.clientY ], { animate: false });
+        prevSingle = e;
       }
-      e.preventDefault();
+      else if (touches.size === 1 && selecting) {
+        updateSelection(e.clientX, e.clientY);
+      }
+      else if (touches.size === 2) {
+        // 2‑finger pinch+pan
+        clearLongPress();
+        const [p1, p2] = [...touches.values()];
+        const center = midpoint(p1, p2);
+        const dist   = distance(p1, p2);
+
+        // Pan
+        map.panBy([ prevCenter.x - center.x, prevCenter.y - center.y ], { animate: false });
+        prevCenter = center;
+
+        // Zoom
+        const scale = dist / prevDist;
+        if (Math.abs(scale - 1) > PINCH_ZOOM_THRESHOLD) {
+          map.zoomTo(map.getZoom() + Math.log2(scale), { around: map.unproject([center.x, center.y]), animate: false });
+          prevDist = dist;
+        }
+      }
     }, { passive: false });
 
-    /* === 4. Mouse selection rectangle === */
-    const sel    = document.getElementById("selection");
-    const canvas = map.getCanvas();
-    let selecting = false, sx, sy;
+    ["pointerup", "pointercancel", "pointerleave"].forEach(ev => container.addEventListener(ev, e => {
+      touches.delete(e.pointerId);
+      if (touches.size === 0) {
+        clearLongPress();
+        prevSingle = undefined;
+        finishSelection();
+      }
+      if (touches.size < 2) {
+        prevCenter = prevDist = undefined;
+      }
+    }));
 
-    canvas.addEventListener("mousedown", e => {
-      if (e.button) return; // left‑button only
-      selecting = true;
-      sx = e.clientX; sy = e.clientY;
-      Object.assign(sel.style, { left: sx + "px", top: sy + "px", width: 0, height: 0, display: "block" });
-      e.preventDefault();
-    });
-
-    window.addEventListener("mousemove", e => {
-      if (!selecting) return;
-      const x = Math.min(e.clientX, sx);
-      const y = Math.min(e.clientY, sy);
-      Object.assign(sel.style, {
-        left:   x + "px",
-        top:    y + "px",
-        width:  Math.abs(e.clientX - sx) + "px",
-        height: Math.abs(e.clientY - sy) + "px"
-      });
-    });
-
-    window.addEventListener("mouseup", () => {
-      if (!selecting) return;
-      selecting = false;
-      sel.style.display = "none";
-
-      const r  = sel.getBoundingClientRect();
-      if (!r.width || !r.height) return; // click only
-      const nw = map.unproject([r.left,  r.top   ]);
-      const se = map.unproject([r.right, r.bottom]);
-      console.log("Selected bounds", { north: nw.lat, west: nw.lng, south: se.lat, east: se.lng });
-    });
-
-    /* Block context‑menu like Figma/Excalidraw */
+    /* Prevent default context‑menu like Figma */
     canvas.addEventListener("contextmenu", e => e.preventDefault());
   </script>
 </body>
