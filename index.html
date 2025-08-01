@@ -2,186 +2,306 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Design‑Style Satellite Map</title>
+  <title>Tactical Annotator Map</title>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <link href="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
-    html,body{margin:0;height:100%;overflow:hidden;-webkit-user-select:none;user-select:none}
+    html,body{margin:0;height:100%;overflow:hidden;-webkit-user-select:none;user-select:none;font-family:system-ui,Segoe UI,Roboto,sans-serif}
     #map{position:absolute;inset:0}
+    /* selection rectangle */
     #selection{position:absolute;border:1px dashed #4a90e2;background:rgba(74,144,226,.12);pointer-events:none;display:none;z-index:10}
+    /* annotation layer */
+    #annoLayer{position:absolute;inset:0;pointer-events:none;z-index:9}
+    /* toolbar */
+    #toolbar{position:absolute;top:8px;left:8px;display:flex;gap:6px;z-index:11;background:rgba(0,0,0,.6);padding:4px 6px;border-radius:6px}
+    #toolbar button{all:unset;width:28px;height:28px;display:grid;place-items:center;color:#fff;font-size:16px;cursor:pointer;border-radius:4px}
+    #toolbar button.active{background:#00ff88;color:#000;font-weight:bold}
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <svg id="annoLayer"></svg>
   <div id="selection"></div>
+  <div id="toolbar">
+    <button data-tool="cursor" title="Cursor">🖱️</button>
+    <button data-tool="rect"   title="Rectangle">▭</button>
+    <button data-tool="circle" title="Circle">◯</button>
+    <button data-tool="line"   title="Line">／</button>
+    <button data-tool="text"   title="Text">T</button>
+  </div>
 
   <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
   <script>
-    /* =====================
-       Tunable constants (mobile + desktop)
-       ===================== */
-    const PAN_SENSITIVITY        = 1.25; // >1 pans farther per scroll pixel (desktop wheel + mobile 1‑finger)
-    const WHEEL_ZOOM_DIVISOR     = 80;   // smaller ⇒ faster pinch‑to‑zoom on trackpads
-    const PINCH_ZOOM_THRESHOLD   = 0.03; // 3‑% change before we zoom
-    const LONG_PRESS_MS          = 350;  // hold this long (ms) to start rectangle on touch
-    const LONG_PRESS_TOLERANCE   = 6;    // px you can wiggle before long‑press cancels
+    /* =============================
+       0.  Tunable constants
+       ============================= */
+    const PAN_SENSITIVITY      = 1.25; // wheel + single‑finger pan multiplier
+    const WHEEL_ZOOM_DIVISOR   = 80;   // trackpad pinch speed (smaller = faster)
+    const PINCH_ZOOM_THRESHOLD = 0.03; // 3‑% distance delta triggers pinch zoom
+    const LONG_PRESS_MS        = 350;  // hold to start rectangle on touch
+    const LONG_PRESS_TOLERANCE = 6;    // px wiggle before long‑press cancels
 
-    /* === 1. Map === */
+    const STROKE_COLOR = '#00ff88';
+    const STROKE_WIDTH = 2;
+    const LINE_DASH    = '4 2';
+    const STORAGE_KEY  = 'tactical_annotations_v1';
+
+    /* =============================
+       1.  Map init
+       ============================= */
     const map = new maplibregl.Map({
-      container: "map",
-      style: {
-        version: 8,
-        sources: {
-          sat: {
-            type: "raster",
-            tiles: [
-              "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-            ],
-            tileSize: 256,
-            attribution: "Tiles © Esri & contributors"
-          }
-        },
-        layers: [{ id: "sat", type: "raster", source: "sat" }]
-      },
-      center: [0, 20],
-      zoom: 3,
-      attributionControl: true
-    });
+      container:'map',
+      style:{version:8,sources:{sat:{type:'raster',tiles:[
+        'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,attribution:'Tiles © Esri & contributors'}},layers:[{id:'sat',type:'raster',source:'sat'}]},
+      center:[0,20],zoom:3,attributionControl:true});
 
-    /* Disable MapLibre built‑ins; custom Figma‑style handlers below */
+    // Disable built‑ins; custom gestures below
     map.dragPan.disable();
     map.touchZoomRotate.disable();
     map.doubleClickZoom.enable();
 
-    /* === 2. Selection rectangle (shared) === */
-    const selBox  = document.getElementById("selection");
-    const canvas  = map.getCanvas();
-    let selecting = false, sx = 0, sy = 0;
-    const beginSelection = (x, y) => {
-      selecting = true;
-      sx = x; sy = y;
-      Object.assign(selBox.style, { left: sx + "px", top: sy + "px", width: 0, height: 0, display: "block" });
+    const container = map.getCanvasContainer();
+    const canvas    = map.getCanvas(); // <-- needed for mouse selection
+
+    /* =============================
+       2.  Annotation persistence helpers
+       ============================= */
+    let events = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    const saveEvents = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
+    const uuid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+    /* =============================
+       3.  Toolbar
+       ============================= */
+    let currentTool = 'cursor';
+    const toolbar = document.getElementById('toolbar');
+    const annoLayer = document.getElementById('annoLayer');
+
+    const setTool = t => {
+      currentTool = t;
+      [...toolbar.children].forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+      // Allow pointer events on SVG only when drawing
+      annoLayer.style.pointerEvents = t === 'cursor' ? 'none' : 'auto';
     };
-    const updateSelection = (x, y) => {
-      const left = Math.min(x, sx);
-      const top  = Math.min(y, sy);
-      Object.assign(selBox.style, {
-        left:   left + "px",
-        top:    top  + "px",
-        width:  Math.abs(x - sx) + "px",
-        height: Math.abs(y - sy) + "px"
-      });
-    };
-    const finishSelection = () => {
-      if (!selecting) return;
-      selecting = false;
-      selBox.style.display = "none";
-      const r = selBox.getBoundingClientRect();
-      if (!r.width || !r.height) return; // tap only
-      const nw = map.unproject([r.left,  r.top   ]);
-      const se = map.unproject([r.right, r.bottom]);
-      console.log("Selected bounds", { north: nw.lat, west: nw.lng, south: se.lat, east: se.lng });
+    toolbar.addEventListener('click', e => {
+      if (e.target.dataset.tool) setTool(e.target.dataset.tool);
+    });
+
+    /* =============================
+       4.  Render annotations
+       ============================= */
+    const renderEvent = ev => {
+      if (ev.type === 'rect') {
+        const p1 = map.project([ev.west, ev.north]);
+        const p2 = map.project([ev.east, ev.south]);
+        let el = document.getElementById(ev.id);
+        if (!el) { el = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); el.id = ev.id; annoLayer.appendChild(el); }
+        el.setAttribute('x', p1.x);
+        el.setAttribute('y', p1.y);
+        el.setAttribute('width',  p2.x - p1.x);
+        el.setAttribute('height', p2.y - p1.y);
+        el.setAttribute('fill', 'none');
+        el.setAttribute('stroke', STROKE_COLOR);
+        el.setAttribute('stroke-width', STROKE_WIDTH);
+        el.setAttribute('stroke-dasharray', LINE_DASH);
+      }
+      else if (ev.type === 'circle') {
+        const c    = map.project([ev.lng, ev.lat]);
+        const edge = map.project([ev.lng + ev.rLng, ev.lat + ev.rLat]);
+        const r = Math.hypot(edge.x - c.x, edge.y - c.y);
+        let el = document.getElementById(ev.id);
+        if (!el) { el = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); el.id = ev.id; annoLayer.appendChild(el); }
+        el.setAttribute('cx', c.x); el.setAttribute('cy', c.y); el.setAttribute('r', r);
+        el.setAttribute('fill', 'none'); el.setAttribute('stroke', STROKE_COLOR); el.setAttribute('stroke-width', STROKE_WIDTH);
+      }
+      else if (ev.type === 'line') {
+        const p1 = map.project([ev.lng1, ev.lat1]);
+        const p2 = map.project([ev.lng2, ev.lat2]);
+        let el = document.getElementById(ev.id);
+        if (!el) { el = document.createElementNS('http://www.w3.org/2000/svg', 'line'); el.id = ev.id; annoLayer.appendChild(el); }
+        el.setAttribute('x1', p1.x); el.setAttribute('y1', p1.y);
+        el.setAttribute('x2', p2.x); el.setAttribute('y2', p2.y);
+        el.setAttribute('stroke', STROKE_COLOR); el.setAttribute('stroke-width', STROKE_WIDTH);
+        el.setAttribute('marker-end', 'url(#arrow)');
+      }
+      else if (ev.type === 'text') {
+        const p = map.project([ev.lng, ev.lat]);
+        let el = document.getElementById(ev.id);
+        if (!el) { el = document.createElementNS('http://www.w3.org/2000/svg', 'text'); el.id = ev.id; annoLayer.appendChild(el); }
+        el.setAttribute('x', p.x); el.setAttribute('y', p.y);
+        el.setAttribute('fill', STROKE_COLOR); el.setAttribute('font-size', '14');
+        el.textContent = ev.content;
+      }
     };
 
-    /* === 3. Desktop: mouse rectangle + trackpad wheel === */
-    canvas.addEventListener("mousedown", e => {
-      if (e.button) return; // left button only
+    const renderAll = () => {
+      const keep = new Set(events.map(e => e.id));
+      [...annoLayer.children].forEach(c => { if (!keep.has(c.id) && c.tagName !== 'defs') c.remove(); });
+      events.forEach(renderEvent);
+    };
+
+    map.on('move', renderAll);
+
+    // Arrowhead marker
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `<marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="${STROKE_COLOR}"/></marker>`;
+    annoLayer.appendChild(defs);
+
+    renderAll(); // initial draw
+
+    /* =============================
+       5.  Annotation drawing logic
+       ============================= */
+    let drawing = false, startPt = {}, tempEvent = null;
+    const toGeo = (x, y) => map.unproject([x, y]);
+
+    const drawPointerDown = e => {
+      if (currentTool === 'cursor') return;
+      drawing = true;
+      startPt = { x: e.clientX, y: e.clientY };
+      if (['rect', 'circle', 'line'].includes(currentTool)) {
+        tempEvent = { id: uuid(), type: currentTool };
+        events.push(tempEvent);
+      }
+      e.preventDefault();
+    };
+
+    const drawPointerMove = e => {
+      if (!drawing || !tempEvent) return;
+      const { clientX: x, clientY: y } = e;
+      if (tempEvent.type === 'rect') {
+        const nw = toGeo(Math.min(x, startPt.x), Math.min(y, startPt.y));
+        const se = toGeo(Math.max(x, startPt.x), Math.max(y, startPt.y));
+        Object.assign(tempEvent, { north: nw.lat, west: nw.lng, south: se.lat, east: se.lng });
+      }
+      else if (tempEvent.type === 'circle') {
+        const c    = toGeo(startPt.x, startPt.y);
+        const edge = toGeo(x, y);
+        Object.assign(tempEvent, { lat: c.lat, lng: c.lng, rLat: edge.lat - c.lat, rLng: edge.lng - c.lng });
+      }
+      else if (tempEvent.type === 'line') {
+        const p1 = toGeo(startPt.x, startPt.y);
+        const p2 = toGeo(x, y);
+        Object.assign(tempEvent, { lat1: p1.lat, lng1: p1.lng, lat2: p2.lat, lng2: p2.lng });
+      }
+      renderAll();
+    };
+
+    const drawPointerUp = e => {
+      if (!drawing) return;
+      drawing = false;
+      if (currentTool === 'text') {
+        const content = prompt('Text:');
+        if (content) {
+          const geo = toGeo(e.clientX, e.clientY);
+          tempEvent = { id: uuid(), type: 'text', lat: geo.lat, lng: geo.lng, content };
+          events.push(tempEvent);
+        }
+      }
+      tempEvent = null;
+      saveEvents();
+      renderAll();
+    };
+
+    annoLayer.addEventListener('pointerdown', drawPointerDown);
+    annoLayer.addEventListener('pointermove', drawPointerMove);
+    window.addEventListener('pointerup', drawPointerUp);
+
+    /* =============================
+       6.  Selection rectangle (cursor mode, mouse)
+       ============================= */
+    const selBox = document.getElementById('selection');
+    let selecting = false, selStart = {};
+
+    const beginSelection = (x, y) => {
+      selecting = true; selStart = { x, y };
+      Object.assign(selBox.style, { left: x + 'px', top: y + 'px', width: 0, height: 0, display: 'block' });
+    };
+    const updateSelection = (x, y) => {
+      const l = Math.min(x, selStart.x), t = Math.min(y, selStart.y);
+      Object.assign(selBox.style, { left: l + 'px', top: t + 'px', width: Math.abs(x - selStart.x) + 'px', height: Math.abs(y - selStart.y) + 'px' });
+    };
+    const finishSelection = () => { if (selecting) { selecting = false; selBox.style.display = 'none'; } };
+
+    canvas.addEventListener('mousedown', e => {
+      if (currentTool !== 'cursor') return;
+      if (e.button) return;
       beginSelection(e.clientX, e.clientY);
       e.preventDefault();
     });
-    window.addEventListener("mousemove", e => selecting && updateSelection(e.clientX, e.clientY));
-    window.addEventListener("mouseup", finishSelection);
+    window.addEventListener('mousemove', e => selecting && updateSelection(e.clientX, e.clientY));
+    window.addEventListener('mouseup', finishSelection);
 
-    /* Trackpad wheel for pan / zoom */
-    map.getCanvasContainer().addEventListener("wheel", e => {
-      const isPinch = e.ctrlKey || e.metaKey; // macOS trackpad pinch sets these
+    /* =============================
+       7.  Desktop trackpad wheel pan/zoom
+       ============================= */
+    container.addEventListener('wheel', e => {
+      const isPinch = e.ctrlKey || e.metaKey;
       if (isPinch) {
-        const zoomDelta = -e.deltaY / WHEEL_ZOOM_DIVISOR;
-        map.zoomTo(map.getZoom() + zoomDelta, { around: map.unproject([e.clientX, e.clientY]), animate: false });
+        const dz = -e.deltaY / WHEEL_ZOOM_DIVISOR;
+        map.zoomTo(map.getZoom() + dz, { around: map.unproject([e.clientX, e.clientY]), animate: false });
       } else {
         map.panBy([ e.deltaX * PAN_SENSITIVITY, e.deltaY * PAN_SENSITIVITY ], { animate: false });
       }
       e.preventDefault();
     }, { passive: false });
 
-    /* === 4. Mobile / touch: 1‑finger pan, 2‑finger pinch+pan, long‑press rectangle === */
-    const container   = map.getCanvasContainer();
-    const touches     = new Map();
+    /* =============================
+       8.  Touch gestures (mobile & tablets) – restores 2‑finger pan/zoom
+       ============================= */
+    const touches = new Map();
     let prevCenter, prevDist, prevSingle;
-    let longPressTimer = null;
 
-    const midpoint = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
-    const distance = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 
-    const clearLongPress = () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } };
-
-    container.addEventListener("pointerdown", e => {
-      if (e.pointerType !== "touch") return;
+    container.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'touch') return;
       touches.set(e.pointerId, e);
       container.setPointerCapture(e.pointerId);
-
       if (touches.size === 1) {
         prevSingle = e;
-        longPressTimer = setTimeout(() => {
-          beginSelection(e.clientX, e.clientY);
-        }, LONG_PRESS_MS);
       } else if (touches.size === 2) {
-        clearLongPress();
         const [p1, p2] = [...touches.values()];
-        prevCenter = midpoint(p1, p2);
-        prevDist   = distance(p1, p2);
+        prevCenter = mid(p1, p2);
+        prevDist   = dist(p1, p2);
       }
     }, { passive: false });
 
-    container.addEventListener("pointermove", e => {
+    container.addEventListener('pointermove', e => {
       if (!touches.has(e.pointerId)) return;
       touches.set(e.pointerId, e);
 
-      if (touches.size === 1 && !selecting) {
-        // 1‑finger pan (cancel long‑press if moved too far)
-        if (Math.abs(e.clientX - prevSingle.clientX) > LONG_PRESS_TOLERANCE || Math.abs(e.clientY - prevSingle.clientY) > LONG_PRESS_TOLERANCE) {
-          clearLongPress();
-        }
+      if (touches.size === 1 && currentTool === 'cursor') {
         map.panBy([ prevSingle.clientX - e.clientX, prevSingle.clientY - e.clientY ], { animate: false });
         prevSingle = e;
       }
-      else if (touches.size === 1 && selecting) {
-        updateSelection(e.clientX, e.clientY);
-      }
       else if (touches.size === 2) {
-        // 2‑finger pinch+pan
-        clearLongPress();
         const [p1, p2] = [...touches.values()];
-        const center = midpoint(p1, p2);
-        const dist   = distance(p1, p2);
+        const center = mid(p1, p2);
+        const d      = dist(p1, p2);
 
-        // Pan
+        // Pan with two fingers
         map.panBy([ prevCenter.x - center.x, prevCenter.y - center.y ], { animate: false });
         prevCenter = center;
 
-        // Zoom
-        const scale = dist / prevDist;
+        // Pinch zoom
+        const scale = d / prevDist;
         if (Math.abs(scale - 1) > PINCH_ZOOM_THRESHOLD) {
           map.zoomTo(map.getZoom() + Math.log2(scale), { around: map.unproject([center.x, center.y]), animate: false });
-          prevDist = dist;
+          prevDist = d;
         }
       }
     }, { passive: false });
 
-    ["pointerup", "pointercancel", "pointerleave"].forEach(ev => container.addEventListener(ev, e => {
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => container.addEventListener(ev, e => {
       touches.delete(e.pointerId);
-      if (touches.size === 0) {
-        clearLongPress();
-        prevSingle = undefined;
-        finishSelection();
-      }
-      if (touches.size < 2) {
-        prevCenter = prevDist = undefined;
-      }
+      if (touches.size === 0) prevSingle = undefined;
+      if (touches.size < 2) { prevCenter = prevDist = undefined; }
     }));
 
-    /* Prevent default context‑menu like Figma */
-    canvas.addEventListener("contextmenu", e => e.preventDefault());
+    /* Stop default context menu */
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
   </script>
 </body>
 </html>
