@@ -38,6 +38,7 @@ export interface TextAnnotation extends AnnotationBase {
   lat: number;
   lng: number;
   content: string;
+  zoom?: number; // Zoom level when created
 }
 export type Annotation =
   | RectAnnotation

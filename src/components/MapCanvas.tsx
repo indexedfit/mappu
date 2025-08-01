@@ -136,11 +136,13 @@ export default function MapCanvas() {
         } else {
           el.setAttribute("fill", "#00ff88");
           // Calculate font size that scales with map
-          // Use a reference point to determine scale
-          const refPoint = map.project([ev.lng, ev.lat + 0.001]); // 0.001 degrees offset
-          const basePoint = map.project([ev.lng, ev.lat]);
-          const scale = Math.abs(basePoint.y - refPoint.y) * 14; // Scale based on geographic distance
-          el.setAttribute("font-size", `${Math.max(8, Math.min(scale, 200))}`); // Clamp between 8 and 200
+          const baseSize = 14; // Base font size in pixels
+          const creationZoom = (ev as any).zoom || 10; // Default to zoom 10 if not stored
+          const currentZoom = map.getZoom();
+          // Scale based on zoom difference from creation time
+          const zoomScale = Math.pow(2, currentZoom - creationZoom);
+          const fontSize = baseSize * zoomScale;
+          el.setAttribute("font-size", `${Math.max(1, Math.min(fontSize, 200))}`);
         }
 
         // geometry
@@ -410,7 +412,8 @@ export default function MapCanvas() {
                 type: "text",
                 lng: map.unproject([point.x, point.y]).lng,
                 lat: map.unproject([point.x, point.y]).lat,
-                content: text
+                content: text,
+                zoom: map.getZoom()
               });
             }
             foreignObj.remove();
