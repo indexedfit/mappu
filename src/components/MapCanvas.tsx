@@ -381,7 +381,14 @@ export default function MapCanvas() {
 
     const upLeave = (e: PointerEvent) => {
       touches.delete(e.pointerId);
-      if (touches.size === 0) prevSingle = undefined;
+      if (touches.size === 0) {
+        prevSingle = undefined;
+      } else if (touches.size === 1) {
+        // Reset to single touch mode
+        const [remaining] = [...touches.values()];
+        prevSingle = remaining;
+        prevCenter = prevDist = undefined;
+      }
       if (touches.size < 2) {
         prevCenter = prevDist = undefined;
       }
@@ -480,26 +487,11 @@ export default function MapCanvas() {
           }
           return; // Don't start selection rectangle when clicking annotation
         } else {
-          // For desktop (non-touch), start selection immediately. For touch, use hold timer
-          hasMoved = false;
-          startPoint = point;
-          
-          if (e.pointerType === "touch") {
-            // Touch: hold timer for selection rectangle
-            holdTimer = setTimeout(() => {
-              if (!hasMoved) {
-                // Start selection rectangle after hold
-                drawing = true;
-                currentElement = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                currentElement.setAttribute("fill", "rgba(0, 255, 136, 0.1)");
-                currentElement.setAttribute("stroke", "#00ff88");
-                currentElement.setAttribute("stroke-width", "1");
-                currentElement.setAttribute("stroke-dasharray", "4 2");
-                svg.appendChild(currentElement);
-              }
-            }, 150); // 150ms hold time like Figma
-          } else {
+          // Only allow selection rectangle on desktop (mouse/pen), not touch
+          if (e.pointerType !== "touch") {
             // Desktop (mouse or pen): immediate selection rectangle
+            hasMoved = false;
+            startPoint = point;
             drawing = true;
             currentElement = document.createElementNS("http://www.w3.org/2000/svg", "rect");
             currentElement.setAttribute("fill", "rgba(0, 255, 136, 0.1)");
@@ -508,6 +500,7 @@ export default function MapCanvas() {
             currentElement.setAttribute("stroke-dasharray", "4 2");
             svg.appendChild(currentElement);
           }
+          // Touch: no selection rectangle (matches Figma behavior)
         }
       } else {
         drawing = true;
@@ -598,17 +591,7 @@ export default function MapCanvas() {
     const pointerMove = (e: PointerEvent) => {
       const point = { x: e.clientX, y: e.clientY };
       
-      // Check if moved enough to cancel hold timer (for touch)
-      if (tool === "cursor" && holdTimer && startPoint) {
-        const dist = Math.hypot(point.x - startPoint.x, point.y - startPoint.y);
-        if (dist > 5) {
-          hasMoved = true;
-          if (holdTimer) {
-            clearTimeout(holdTimer);
-            holdTimer = null;
-          }
-        }
-      }
+      // No longer need hold timer logic since we don't do selection rectangles on touch
       
       if (!drawing) return;
       
