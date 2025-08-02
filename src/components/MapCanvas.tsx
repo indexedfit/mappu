@@ -84,7 +84,14 @@ export default function MapCanvas() {
         "http://www.w3.org/2000/svg",
         "defs",
       );
-      defs.innerHTML = `<marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#00ff88"/></marker>`;
+      defs.innerHTML = `
+        <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 Z" fill="#00ff88"/>
+        </marker>
+        <marker id="arrow-selected" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 Z" fill="#ff0088"/>
+        </marker>
+      `;
       svgRef.current.appendChild(defs);
     }
 
@@ -108,6 +115,8 @@ export default function MapCanvas() {
     
     const render = () => {
       const keep = new Set<string>();
+      let selectionBounds: DOMRect | null = null;
+      
       annotations.forEach((ev) => {
         keep.add(ev.id);
         let el = svg.querySelector<SVGElement>(`[id="${ev.id}"]`);
@@ -132,7 +141,9 @@ export default function MapCanvas() {
           el.setAttribute("stroke-width", "2");
           if (ev.type === "rect" || ev.type === "line")
             el.setAttribute("stroke-dasharray", "4 2");
-          if (ev.type === "line") el.setAttribute("marker-end", "url(#arrow)");
+          if (ev.type === "line") {
+            el.setAttribute("marker-end", selected.has(ev.id) ? "url(#arrow-selected)" : "url(#arrow)");
+          }
         } else {
           el.setAttribute("fill", "#00ff88");
           // Calculate font size that scales with map
@@ -173,11 +184,86 @@ export default function MapCanvas() {
           el.setAttribute("x", `${p.x}`);
           el.setAttribute("y", `${p.y}`);
         }
+        
+        // Update selection bounds
+        if (selected.has(ev.id)) {
+          const bounds = el.getBoundingClientRect();
+          if (!selectionBounds) {
+            selectionBounds = bounds;
+          } else {
+            const left = Math.min(selectionBounds.left, bounds.left);
+            const top = Math.min(selectionBounds.top, bounds.top);
+            const right = Math.max(selectionBounds.right, bounds.right);
+            const bottom = Math.max(selectionBounds.bottom, bounds.bottom);
+            selectionBounds = new DOMRect(left, top, right - left, bottom - top);
+          }
+        }
       });
+      
       // prune deleted
       svg.querySelectorAll<SVGElement>("[data-anno]").forEach((n) => {
         if (!keep.has(n.id)) n.remove();
       });
+      
+      // Handle delete button
+      let deleteBtn = svg.querySelector<SVGElement>("#delete-button");
+      if (selected.size > 0 && selectionBounds) {
+        if (!deleteBtn) {
+          // Create delete button group
+          const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          g.id = "delete-button";
+          g.style.cursor = "pointer";
+          g.style.pointerEvents = "all";
+          
+          // Background circle - smaller and more subtle
+          const bg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          bg.setAttribute("r", "8");
+          bg.setAttribute("fill", "#333");
+          bg.setAttribute("fill-opacity", "0.8");
+          
+          // X icon - smaller
+          const x1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          x1.setAttribute("x1", "-3");
+          x1.setAttribute("y1", "-3");
+          x1.setAttribute("x2", "3");
+          x1.setAttribute("y2", "3");
+          x1.setAttribute("stroke", "white");
+          x1.setAttribute("stroke-width", "1.5");
+          x1.setAttribute("stroke-linecap", "round");
+          
+          const x2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          x2.setAttribute("x1", "3");
+          x2.setAttribute("y1", "-3");
+          x2.setAttribute("x2", "-3");
+          x2.setAttribute("y2", "3");
+          x2.setAttribute("stroke", "white");
+          x2.setAttribute("stroke-width", "1.5");
+          x2.setAttribute("stroke-linecap", "round");
+          
+          g.appendChild(bg);
+          g.appendChild(x1);
+          g.appendChild(x2);
+          svg.appendChild(g);
+          deleteBtn = g;
+        }
+        
+        // Position delete button at top-right of selection
+        const containerRect = containerRef.current!.getBoundingClientRect();
+        const x = (selectionBounds as DOMRect).right - containerRect.left + 10;
+        const y = (selectionBounds as DOMRect).top - containerRect.top - 10;
+        deleteBtn.setAttribute("transform", `translate(${x}, ${y})`);
+        
+        // Ensure click handler is attached (re-attach in case it was lost)
+        deleteBtn.onclick = (e: MouseEvent) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const currentSelected = [...selected];
+          remove(currentSelected);
+          setSelected(new Set());
+        };
+      } else if (deleteBtn) {
+        deleteBtn.remove();
+      }
     };
 
     map.on("move", render);
@@ -186,7 +272,7 @@ export default function MapCanvas() {
     return () => {
       map.off("move", render);
     };
-  }, [annotations, selected]);
+  }, [annotations, selected, remove]);
 
 
   /* ================= Touch gestures like Figma ================= */
@@ -223,8 +309,8 @@ export default function MapCanvas() {
     const move = (e: PointerEvent) => {
       if (!touches.has(e.pointerId)) return;
       touches.set(e.pointerId, e);
-      if (touches.size === 1 && tool === "cursor" && prevSingle) {
-        // Single finger pan only in cursor mode
+      if (touches.size === 1 && prevSingle) {
+        // Single finger pan for mobile (works in all modes)
         map.panBy([prevSingle.clientX - e.clientX, prevSingle.clientY - e.clientY], {
           animate: false,
         });
@@ -313,6 +399,8 @@ export default function MapCanvas() {
     let drawing = false;
     let startPoint: { x: number; y: number } | null = null;
     let currentElement: SVGElement | null = null;
+    let holdTimer: NodeJS.Timeout | null = null;
+    let hasMoved = false;
 
     const pointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
@@ -320,11 +408,14 @@ export default function MapCanvas() {
       // Don't process if clicking on contenteditable
       if ((e.target as Element).getAttribute?.('contenteditable') === 'true') return;
       
+      // Don't process if clicking on delete button
+      const target = e.target as Element;
+      if (target.closest('#delete-button')) return;
+      
       const point = { x: e.clientX, y: e.clientY };
       
       if (tool === "cursor") {
         // Check if clicking on an annotation
-        const target = e.target as Element;
         if (target && target.hasAttribute("data-anno")) {
           const id = target.id;
           if (!e.shiftKey) {
@@ -339,15 +430,34 @@ export default function MapCanvas() {
           }
           return; // Don't start selection rectangle when clicking annotation
         } else {
-          // Start selection rectangle
-          drawing = true;
+          // For desktop (non-touch), start selection immediately. For touch, use hold timer
+          hasMoved = false;
           startPoint = point;
-          currentElement = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-          currentElement.setAttribute("fill", "rgba(0, 255, 136, 0.1)");
-          currentElement.setAttribute("stroke", "#00ff88");
-          currentElement.setAttribute("stroke-width", "1");
-          currentElement.setAttribute("stroke-dasharray", "4 2");
-          svg.appendChild(currentElement);
+          
+          if (e.pointerType === "touch") {
+            // Touch: hold timer for selection rectangle
+            holdTimer = setTimeout(() => {
+              if (!hasMoved) {
+                // Start selection rectangle after hold
+                drawing = true;
+                currentElement = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                currentElement.setAttribute("fill", "rgba(0, 255, 136, 0.1)");
+                currentElement.setAttribute("stroke", "#00ff88");
+                currentElement.setAttribute("stroke-width", "1");
+                currentElement.setAttribute("stroke-dasharray", "4 2");
+                svg.appendChild(currentElement);
+              }
+            }, 300); // 300ms hold time like Figma
+          } else {
+            // Desktop (mouse or pen): immediate selection rectangle
+            drawing = true;
+            currentElement = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            currentElement.setAttribute("fill", "rgba(0, 255, 136, 0.1)");
+            currentElement.setAttribute("stroke", "#00ff88");
+            currentElement.setAttribute("stroke-width", "1");
+            currentElement.setAttribute("stroke-dasharray", "4 2");
+            svg.appendChild(currentElement);
+          }
         }
       } else {
         drawing = true;
@@ -437,9 +547,21 @@ export default function MapCanvas() {
     };
 
     const pointerMove = (e: PointerEvent) => {
-      if (!drawing) return;
-      
       const point = { x: e.clientX, y: e.clientY };
+      
+      // Check if moved enough to cancel hold timer (for touch)
+      if (tool === "cursor" && holdTimer && startPoint) {
+        const dist = Math.hypot(point.x - startPoint.x, point.y - startPoint.y);
+        if (dist > 5) {
+          hasMoved = true;
+          if (holdTimer) {
+            clearTimeout(holdTimer);
+            holdTimer = null;
+          }
+        }
+      }
+      
+      if (!drawing) return;
       
       if (drawing && startPoint && currentElement) {
         if (tool === "cursor") {
@@ -478,9 +600,29 @@ export default function MapCanvas() {
     };
 
     const pointerUp = (e: PointerEvent) => {
-      if (!drawing) return;
+      // Clear hold timer if it exists
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
       
       const point = { x: e.clientX, y: e.clientY };
+      
+      if (!drawing) {
+        // If we're in cursor mode and clicked on empty space without dragging, clear selection
+        if (tool === "cursor" && startPoint && !e.shiftKey) {
+          const dist = Math.hypot(point.x - startPoint.x, point.y - startPoint.y);
+          if (dist < 5) {
+            // Only clear selection if it was a click, not a drag
+            const target = e.target as Element;
+            if (!target.hasAttribute("data-anno") && !target.closest('#delete-button')) {
+              setSelected(new Set());
+            }
+          }
+        }
+        startPoint = null;
+        return;
+      }
       
       if (drawing && startPoint && currentElement) {
         if (tool === "cursor") {
@@ -509,9 +651,17 @@ export default function MapCanvas() {
             });
             
             setSelected(newSelected);
+          } else {
+            // Small drag or click - clear selection if not shift
+            if (!e.shiftKey) {
+              setSelected(new Set());
+            }
           }
           
-          currentElement.remove();
+          // Always remove the selection rectangle
+          if (currentElement && currentElement.parentNode) {
+            currentElement.remove();
+          }
         } else {
           // Create annotation
           const id = crypto.randomUUID();
@@ -566,16 +716,33 @@ export default function MapCanvas() {
     // Always allow pointer events on SVG
     svg.style.pointerEvents = "auto";
 
+    const pointerCancel = () => {
+      // Clear hold timer if it exists
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+      
+      // Remove any in-progress selection rectangle
+      if (currentElement && currentElement.parentNode) {
+        currentElement.remove();
+      }
+      
+      drawing = false;
+      startPoint = null;
+      currentElement = null;
+    };
+
     svg.addEventListener("pointerdown", pointerDown);
     svg.addEventListener("pointermove", pointerMove);
     svg.addEventListener("pointerup", pointerUp);
-    svg.addEventListener("pointercancel", pointerUp);
+    svg.addEventListener("pointercancel", pointerCancel);
 
     return () => {
       svg.removeEventListener("pointerdown", pointerDown);
       svg.removeEventListener("pointermove", pointerMove);
       svg.removeEventListener("pointerup", pointerUp);
-      svg.removeEventListener("pointercancel", pointerUp);
+      svg.removeEventListener("pointercancel", pointerCancel);
     };
   }, [tool, annotations, selected, add]);
 

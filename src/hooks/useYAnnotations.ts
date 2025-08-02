@@ -4,9 +4,20 @@ import { yAnnotations, yLog, type Annotation, type LogEntry } from "../ydoc";
 export function useYArray<T>(yarr: any): [T[], (vals: T[]) => void] {
   const [state, setState] = useState<T[]>(yarr.toArray());
   useEffect(() => {
+    // Set initial state in case data was already loaded
+    setState(yarr.toArray());
+    
     const sub = () => setState(yarr.toArray());
     yarr.observe(sub);
-    return () => yarr.unobserve(sub);
+    
+    // Also observe the doc for updates (for when IndexedDB loads)
+    const docSub = () => setState(yarr.toArray());
+    yarr.doc.on("update", docSub);
+    
+    return () => {
+      yarr.unobserve(sub);
+      yarr.doc.off("update", docSub);
+    };
   }, [yarr]);
   return [
     state,
