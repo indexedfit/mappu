@@ -454,6 +454,14 @@ export default function MapCanvas() {
       const target = e.target as Element;
       if (target.closest('#delete-button')) return;
       
+      // For touch events in cursor mode, pass through to map unless clicking annotation
+      if (e.pointerType === "touch" && tool === "cursor") {
+        if (!target.hasAttribute("data-anno")) {
+          // Let the map handle touch events for panning
+          return;
+        }
+      }
+      
       const point = { x: e.clientX, y: e.clientY };
       
       if (tool === "cursor") {
@@ -793,7 +801,7 @@ export default function MapCanvas() {
     // Always allow pointer events on SVG
     svg.style.pointerEvents = "auto";
 
-    const pointerCancel = () => {
+    const pointerCancel = (_e?: PointerEvent) => {
       // Clear hold timer if it exists
       if (holdTimer) {
         clearTimeout(holdTimer);
@@ -816,16 +824,153 @@ export default function MapCanvas() {
       currentElement = null;
     };
 
-    svg.addEventListener("pointerdown", pointerDown);
-    svg.addEventListener("pointermove", pointerMove);
-    svg.addEventListener("pointerup", pointerUp);
-    svg.addEventListener("pointercancel", pointerCancel);
+    // Track active touch points for proper forwarding
+    const activeTouches = new Set<number>();
+
+    // For touch events, forward to canvas for map interaction when appropriate
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        activeTouches.add(e.pointerId);
+        
+        // In cursor mode, forward touch events unless interacting with annotations
+        if (tool === "cursor") {
+          const target = e.target as Element;
+          if (!target.hasAttribute("data-anno") && !target.closest('#delete-button')) {
+            // Forward to canvas for map panning/zooming
+            const canvas = map.getCanvasContainer();
+            const newEvent = new PointerEvent(e.type, {
+              ...e,
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              detail: 0,
+              screenX: e.screenX,
+              screenY: e.screenY,
+              clientX: e.clientX,
+              clientY: e.clientY,
+              ctrlKey: e.ctrlKey,
+              altKey: e.altKey,
+              shiftKey: e.shiftKey,
+              metaKey: e.metaKey,
+              button: e.button,
+              buttons: e.buttons,
+              pointerId: e.pointerId,
+              width: e.width,
+              height: e.height,
+              pressure: e.pressure,
+              tiltX: e.tiltX,
+              tiltY: e.tiltY,
+              pointerType: e.pointerType,
+              isPrimary: e.isPrimary
+            });
+            canvas.dispatchEvent(newEvent);
+            
+            // Don't process further if forwarding for pan/zoom
+            if (activeTouches.size <= 2) {
+              e.stopPropagation();
+              return;
+            }
+          }
+        }
+      }
+      pointerDown(e);
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch" && activeTouches.has(e.pointerId)) {
+        if (tool === "cursor" && !drawing) {
+          // Forward to canvas
+          const canvas = map.getCanvasContainer();
+          const newEvent = new PointerEvent(e.type, {
+            ...e,
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            detail: 0,
+            screenX: e.screenX,
+            screenY: e.screenY,
+            clientX: e.clientX,
+            clientY: e.clientY,
+            ctrlKey: e.ctrlKey,
+            altKey: e.altKey,
+            shiftKey: e.shiftKey,
+            metaKey: e.metaKey,
+            button: e.button,
+            buttons: e.buttons,
+            pointerId: e.pointerId,
+            width: e.width,
+            height: e.height,
+            pressure: e.pressure,
+            tiltX: e.tiltX,
+            tiltY: e.tiltY,
+            pointerType: e.pointerType,
+            isPrimary: e.isPrimary
+          });
+          canvas.dispatchEvent(newEvent);
+          e.stopPropagation();
+          return;
+        }
+      }
+      pointerMove(e);
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        activeTouches.delete(e.pointerId);
+        
+        if (tool === "cursor" && !drawing) {
+          // Forward to canvas
+          const canvas = map.getCanvasContainer();
+          const newEvent = new PointerEvent(e.type, {
+            ...e,
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            detail: 0,
+            screenX: e.screenX,
+            screenY: e.screenY,
+            clientX: e.clientX,
+            clientY: e.clientY,
+            ctrlKey: e.ctrlKey,
+            altKey: e.altKey,
+            shiftKey: e.shiftKey,
+            metaKey: e.metaKey,
+            button: e.button,
+            buttons: e.buttons,
+            pointerId: e.pointerId,
+            width: e.width,
+            height: e.height,
+            pressure: e.pressure,
+            tiltX: e.tiltX,
+            tiltY: e.tiltY,
+            pointerType: e.pointerType,
+            isPrimary: e.isPrimary
+          });
+          canvas.dispatchEvent(newEvent);
+          e.stopPropagation();
+          return;
+        }
+      }
+      pointerUp(e);
+    };
+
+    const handlePointerCancel = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        activeTouches.delete(e.pointerId);
+      }
+      pointerCancel(e);
+    };
+
+    svg.addEventListener("pointerdown", handlePointerDown);
+    svg.addEventListener("pointermove", handlePointerMove);
+    svg.addEventListener("pointerup", handlePointerUp);
+    svg.addEventListener("pointercancel", handlePointerCancel);
 
     return () => {
-      svg.removeEventListener("pointerdown", pointerDown);
-      svg.removeEventListener("pointermove", pointerMove);
-      svg.removeEventListener("pointerup", pointerUp);
-      svg.removeEventListener("pointercancel", pointerCancel);
+      svg.removeEventListener("pointerdown", handlePointerDown);
+      svg.removeEventListener("pointermove", handlePointerMove);
+      svg.removeEventListener("pointerup", handlePointerUp);
+      svg.removeEventListener("pointercancel", handlePointerCancel);
     };
   }, [tool, annotations, selected, add]);
 

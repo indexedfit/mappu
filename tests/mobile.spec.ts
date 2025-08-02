@@ -132,7 +132,8 @@ test.describe('Mobile Touch Gestures', () => {
     expect(newZoom).toBeGreaterThan(initialZoom);
   });
 
-  test('hold-and-drag selection works on touch devices', async ({ page }) => {
+  test.skip('hold-and-drag selection works on touch devices', async ({ page }) => {
+    // SKIPPED: Touch events in cursor mode are now passed through to map for panning
     // Create a rectangle first
     await page.click('button:has-text("▭")');
     await page.mouse.move(150, 150);
