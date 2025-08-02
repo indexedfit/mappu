@@ -91,3 +91,8 @@ temp/
 
 # Local development
 .local
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

@@ -9,6 +9,12 @@ export const provider = new WebrtcProvider("mappu-room", ydoc);
 export const yAnnotations = ydoc.getArray<Annotation>("annotations");
 export const yLog = ydoc.getArray<LogEntry>("log");
 
+// Expose for debugging
+if (typeof window !== 'undefined') {
+  (window as any).yAnnotations = yAnnotations;
+  (window as any).yLog = yLog;
+}
+
 // Enable IndexedDB persistence
 let persistence: IndexeddbPersistence | null = null;
 try {
@@ -44,6 +50,7 @@ export interface RectAnnotation extends AnnotationBase {
   west: number;
   south: number;
   east: number;
+  zoom?: number; // Zoom level when created
 }
 export interface CircleAnnotation extends AnnotationBase {
   type: "circle";
@@ -51,6 +58,7 @@ export interface CircleAnnotation extends AnnotationBase {
   lng: number;
   rLat: number;
   rLng: number;
+  zoom?: number; // Zoom level when created
 }
 export interface LineAnnotation extends AnnotationBase {
   type: "line";
@@ -58,6 +66,7 @@ export interface LineAnnotation extends AnnotationBase {
   lng1: number;
   lat2: number;
   lng2: number;
+  zoom?: number; // Zoom level when created
 }
 export interface TextAnnotation extends AnnotationBase {
   type: "text";

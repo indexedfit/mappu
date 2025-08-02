@@ -85,10 +85,10 @@ export default function MapCanvas() {
         "defs",
       );
       defs.innerHTML = `
-        <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
           <path d="M0 0 L10 5 L0 10 Z" fill="#00ff88"/>
         </marker>
-        <marker id="arrow-selected" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <marker id="arrow-selected" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
           <path d="M0 0 L10 5 L0 10 Z" fill="#ff0088"/>
         </marker>
       `;
@@ -138,12 +138,11 @@ export default function MapCanvas() {
             "stroke",
             selected.has(ev.id) ? "#ff0088" : "#00ff88",
           );
+          
+          // Use consistent stroke width for all shapes
           el.setAttribute("stroke-width", "2");
           if (ev.type === "rect" || ev.type === "line")
             el.setAttribute("stroke-dasharray", "4 2");
-          if (ev.type === "line") {
-            el.setAttribute("marker-end", selected.has(ev.id) ? "url(#arrow-selected)" : "url(#arrow)");
-          }
         } else {
           el.setAttribute("fill", "#00ff88");
           // Calculate font size that scales with map
@@ -178,6 +177,41 @@ export default function MapCanvas() {
           el.setAttribute("y1", `${p1.y}`);
           el.setAttribute("x2", `${p2.x}`);
           el.setAttribute("y2", `${p2.y}`);
+          
+          // Remove marker and create arrow head as a path
+          el.removeAttribute("marker-end");
+          
+          // Calculate arrow head
+          const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+          const arrowLength = 10; // Fixed size arrow head
+          const arrowAngle = Math.PI / 6; // 30 degrees
+          
+          // Arrow head points
+          const arrowTip = p2;
+          const arrowLeft = {
+            x: arrowTip.x - arrowLength * Math.cos(angle - arrowAngle),
+            y: arrowTip.y - arrowLength * Math.sin(angle - arrowAngle)
+          };
+          const arrowRight = {
+            x: arrowTip.x - arrowLength * Math.cos(angle + arrowAngle),
+            y: arrowTip.y - arrowLength * Math.sin(angle + arrowAngle)
+          };
+          
+          // Create or update arrow head path
+          let arrowHead = svg.querySelector(`#arrow-head-${ev.id}`) as SVGPathElement;
+          if (!arrowHead) {
+            arrowHead = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            arrowHead.id = `arrow-head-${ev.id}`;
+            arrowHead.dataset.anno = "1";
+            svg.appendChild(arrowHead);
+          }
+          
+          arrowHead.setAttribute("d", `M ${arrowLeft.x} ${arrowLeft.y} L ${arrowTip.x} ${arrowTip.y} L ${arrowRight.x} ${arrowRight.y} Z`);
+          arrowHead.setAttribute("fill", selected.has(ev.id) ? "#ff0088" : "#00ff88");
+          arrowHead.setAttribute("stroke", "none");
+          
+          // Add arrow head to keep set
+          keep.add(`arrow-head-${ev.id}`);
         } else if (ev.type === "text") {
           const p = map.project([ev.lng, ev.lat]);
           el.textContent = ev.content;
@@ -202,7 +236,11 @@ export default function MapCanvas() {
       
       // prune deleted
       svg.querySelectorAll<SVGElement>("[data-anno]").forEach((n) => {
-        if (!keep.has(n.id)) n.remove();
+        if (!keep.has(n.id)) {
+          n.remove();
+          // Also remove arrow head if it's a line
+          svg.querySelector(`#arrow-head-${n.id}`)?.remove();
+        }
       });
       
       // Handle delete button
@@ -295,7 +333,11 @@ export default function MapCanvas() {
     const down = (e: PointerEvent) => {
       if (e.pointerType !== "touch") return;
       touches.set(e.pointerId, e);
-      container.setPointerCapture(e.pointerId);
+      try {
+        container.setPointerCapture(e.pointerId);
+      } catch (err) {
+        // Ignore capture errors in tests
+      }
       if (touches.size === 1) {
         prevSingle = e;
       } else if (touches.size === 2) {
@@ -357,7 +399,7 @@ export default function MapCanvas() {
         container.removeEventListener(ev, upLeave as any),
       );
     };
-  }, [tool]);
+  }, []);
 
   /* ================= Keyboard shortcuts ================= */
   useEffect(() => {
@@ -447,7 +489,7 @@ export default function MapCanvas() {
                 currentElement.setAttribute("stroke-dasharray", "4 2");
                 svg.appendChild(currentElement);
               }
-            }, 300); // 300ms hold time like Figma
+            }, 150); // 150ms hold time like Figma
           } else {
             // Desktop (mouse or pen): immediate selection rectangle
             drawing = true;
@@ -479,7 +521,6 @@ export default function MapCanvas() {
           currentElement.setAttribute("stroke", "#00ff88");
           currentElement.setAttribute("stroke-width", "2");
           currentElement.setAttribute("stroke-dasharray", "4 2");
-          currentElement.setAttribute("marker-end", "url(#arrow)");
         } else if (tool === "text") {
           // Don't use regular drawing flow for text
           drawing = false;
@@ -595,6 +636,33 @@ export default function MapCanvas() {
           currentElement.setAttribute("y1", `${startPoint.y}`);
           currentElement.setAttribute("x2", `${point.x}`);
           currentElement.setAttribute("y2", `${point.y}`);
+          
+          // Create/update temporary arrow head during drag
+          let tempArrowHead = svg.querySelector('#temp-arrow-head') as SVGPathElement;
+          if (!tempArrowHead) {
+            tempArrowHead = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            tempArrowHead.id = 'temp-arrow-head';
+            svg.appendChild(tempArrowHead);
+          }
+          
+          // Calculate arrow head
+          const angle = Math.atan2(point.y - startPoint.y, point.x - startPoint.x);
+          const arrowLength = 10; // Fixed size during drag
+          const arrowAngle = Math.PI / 6;
+          
+          const arrowTip = point;
+          const arrowLeft = {
+            x: arrowTip.x - arrowLength * Math.cos(angle - arrowAngle),
+            y: arrowTip.y - arrowLength * Math.sin(angle - arrowAngle)
+          };
+          const arrowRight = {
+            x: arrowTip.x - arrowLength * Math.cos(angle + arrowAngle),
+            y: arrowTip.y - arrowLength * Math.sin(angle + arrowAngle)
+          };
+          
+          tempArrowHead.setAttribute("d", `M ${arrowLeft.x} ${arrowLeft.y} L ${arrowTip.x} ${arrowTip.y} L ${arrowRight.x} ${arrowRight.y} Z`);
+          tempArrowHead.setAttribute("fill", "#00ff88");
+          tempArrowHead.setAttribute("stroke", "none");
         }
       }
     };
@@ -676,7 +744,8 @@ export default function MapCanvas() {
               west: p1.lng,
               north: p1.lat,
               east: p2.lng,
-              south: p2.lat
+              south: p2.lat,
+              zoom: map.getZoom()
             });
           } else if (tool === "circle") {
             const center = map.unproject([startPoint.x, startPoint.y]);
@@ -688,7 +757,8 @@ export default function MapCanvas() {
               lng: center.lng,
               lat: center.lat,
               rLng: edge.lng - center.lng,
-              rLat: edge.lat - center.lat
+              rLat: edge.lat - center.lat,
+              zoom: map.getZoom()
             });
           } else if (tool === "line") {
             const p1 = map.unproject([startPoint.x, startPoint.y]);
@@ -700,11 +770,18 @@ export default function MapCanvas() {
               lng1: p1.lng,
               lat1: p1.lat,
               lng2: p2.lng,
-              lat2: p2.lat
+              lat2: p2.lat,
+              zoom: map.getZoom()
             });
           }
           
           currentElement.remove();
+          
+          // Remove temporary arrow head if it exists
+          const tempArrowHead = svg.querySelector('#temp-arrow-head');
+          if (tempArrowHead) {
+            tempArrowHead.remove();
+          }
         }
       }
       
@@ -726,6 +803,12 @@ export default function MapCanvas() {
       // Remove any in-progress selection rectangle
       if (currentElement && currentElement.parentNode) {
         currentElement.remove();
+      }
+      
+      // Remove temporary arrow head if it exists
+      const tempArrowHead = svg.querySelector('#temp-arrow-head');
+      if (tempArrowHead) {
+        tempArrowHead.remove();
       }
       
       drawing = false;
