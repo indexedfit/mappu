@@ -449,7 +449,6 @@ export default function MapCanvas() {
     let startPoint: { x: number; y: number } | null = null;
     let currentElement: SVGElement | null = null;
     let holdTimer: NodeJS.Timeout | null = null;
-    let hasMoved = false;
 
     const pointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
@@ -490,7 +489,6 @@ export default function MapCanvas() {
           // Only allow selection rectangle on desktop (mouse/pen), not touch
           if (e.pointerType !== "touch") {
             // Desktop (mouse or pen): immediate selection rectangle
-            hasMoved = false;
             startPoint = point;
             drawing = true;
             currentElement = document.createElementNS("http://www.w3.org/2000/svg", "rect");
