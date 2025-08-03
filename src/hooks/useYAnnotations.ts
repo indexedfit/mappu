@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { yAnnotations, yLog, type Annotation, type LogEntry } from "../ydoc";
 
+export type { Annotation } from "../ydoc";
+
 export function useYArray<T>(yarr: any): [T[], (vals: T[]) => void] {
   const [state, setState] = useState<T[]>(yarr.toArray());
   useEffect(() => {
