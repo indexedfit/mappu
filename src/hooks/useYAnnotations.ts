@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { yAnnotations, yLog, type Annotation, type LogEntry } from "../ydoc";
+import * as Y from "yjs";
+import { type Annotation, type LogEntry } from "../ydoc";
 
 export type { Annotation } from "../ydoc";
 
-export function useYArray<T>(yarr: any): [T[], (vals: T[]) => void] {
+export function useYArray<T>(yarr: Y.Array<T>): [T[], (vals: T[]) => void] {
   const [state, setState] = useState<T[]>(yarr.toArray());
   useEffect(() => {
     // Set initial state in case data was already loaded
@@ -14,11 +15,15 @@ export function useYArray<T>(yarr: any): [T[], (vals: T[]) => void] {
     
     // Also observe the doc for updates (for when IndexedDB loads)
     const docSub = () => setState(yarr.toArray());
-    yarr.doc.on("update", docSub);
+    if (yarr.doc) {
+      yarr.doc.on("update", docSub);
+    }
     
     return () => {
       yarr.unobserve(sub);
-      yarr.doc.off("update", docSub);
+      if (yarr.doc) {
+        yarr.doc.off("update", docSub);
+      }
     };
   }, [yarr]);
   return [
@@ -30,7 +35,10 @@ export function useYArray<T>(yarr: any): [T[], (vals: T[]) => void] {
   ];
 }
 
-export function useAnnotations() {
+export function useAnnotations(ydoc: Y.Doc) {
+  const yAnnotations = ydoc.getArray<Annotation>("annotations");
+  const yLog = ydoc.getArray<LogEntry>("log");
+  
   const [annotations, setAnnotations] = useYArray<Annotation>(yAnnotations);
 
   const add = (anno: Annotation) => {

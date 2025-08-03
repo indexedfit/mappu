@@ -1,8 +1,13 @@
 import React from 'react';
+import * as Y from 'yjs';
 import { useAnnotations } from '../hooks/useYAnnotations';
 
-export default function MapStats() {
-  const { annotations } = useAnnotations();
+interface MapStatsProps {
+  ydoc: Y.Doc;
+}
+
+export default function MapStats({ ydoc }: MapStatsProps) {
+  const { annotations } = useAnnotations(ydoc);
   const [fps, setFps] = React.useState(0);
   const frameCount = React.useRef(0);
   const lastUpdate = React.useRef(performance.now());
@@ -31,7 +36,7 @@ export default function MapStats() {
   }, []);
 
   return (
-    <div className="absolute top-2 right-2 text-xs bg-black/60 text-green-400 px-2 py-1 rounded z-50 pointer-events-none">
+    <div className="absolute top-12 right-2 text-xs bg-black/60 text-green-400 px-2 py-1 rounded z-30 pointer-events-none">
       <div>{fps} FPS</div>
       <div>{annotations.length} annos</div>
     </div>

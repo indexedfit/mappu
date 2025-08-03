@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import maplibregl from 'maplibre-gl';
+import * as Y from 'yjs';
 import type { Tool } from '../components/MapCanvas';
 import { useAnnotations } from '../hooks/useYAnnotations';
 
 export function useSelection(
   map: maplibregl.Map | null,
   svg: SVGSVGElement | null,
-  tool: Tool
+  tool: Tool,
+  ydoc: Y.Doc
 ): [Set<string>, Dispatch<SetStateAction<Set<string>>>] {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { annotations, remove } = useAnnotations();
+  const { annotations, remove } = useAnnotations(ydoc);
 
   // Handle keyboard shortcuts for deletion
   useEffect(() => {

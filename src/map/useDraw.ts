@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
+import * as Y from 'yjs';
 import type { Tool } from '../components/MapCanvas';
 import { useAnnotations } from '../hooks/useYAnnotations';
 
@@ -8,9 +9,10 @@ export function useDraw(
   svg: SVGSVGElement | null,
   tool: Tool,
   _selected: Set<string>,
+  ydoc: Y.Doc,
   onToolChange?: (tool: Tool) => void
 ) {
-  const { add } = useAnnotations();
+  const { add } = useAnnotations(ydoc);
 
   useEffect(() => {
     if (!map || !svg) return;

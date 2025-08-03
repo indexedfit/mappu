@@ -1,44 +1,16 @@
-import * as Y from "yjs";
-import { WebrtcProvider } from "y-webrtc";
-import { IndexeddbPersistence } from "y-indexeddb";
+// This file now only exports types - actual instances are created in BoardRouter
+// Keeping this for backward compatibility during migration
 
-export const ydoc = new Y.Doc();
-// room name could be configurable via env / url
-export const provider = new WebrtcProvider("mappu-room", ydoc);
-
-export const yAnnotations = ydoc.getArray<Annotation>("annotations");
-export const yLog = ydoc.getArray<LogEntry>("log");
-
-// Expose for debugging
-if (typeof window !== 'undefined') {
-  (window as any).yAnnotations = yAnnotations;
-  (window as any).yLog = yLog;
+export function throwDeprecatedError(): never {
+  throw new Error('Direct import from ydoc.ts is deprecated. Use BoardRouter instead.');
 }
 
-// Enable IndexedDB persistence
-let persistence: IndexeddbPersistence | null = null;
-try {
-  persistence = new IndexeddbPersistence("mappu-room", ydoc);
-  persistence.on("synced", () => {
-    console.log("Content from IndexedDB loaded");
-    // Force a re-render by updating observer timestamps
-    yAnnotations.observe(() => {});
-    yLog.observe(() => {});
-  });
-  
-  // Handle errors during sync
-  persistence.on("error", (error: any) => {
-    console.error("IndexedDB persistence error:", error);
-    // If data is corrupted, clear it
-    if (error.message && error.message.includes("decoder.arr")) {
-      console.warn("Clearing corrupted IndexedDB data...");
-      persistence?.clearData();
-    }
-  });
-} catch (error) {
-  console.warn("Failed to initialize IndexedDB persistence:", error);
-}
-export { persistence };
+// These exports will cause errors if accessed, helping identify places that need updating
+export const ydoc = throwDeprecatedError as any;
+export const provider = throwDeprecatedError as any;
+export const yAnnotations = throwDeprecatedError as any;
+export const yLog = throwDeprecatedError as any;
+export const persistence = throwDeprecatedError as any;
 
 export interface AnnotationBase {
   id: string;

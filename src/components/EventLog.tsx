@@ -1,9 +1,14 @@
 import { useState, useEffect } from "react";
+import * as Y from "yjs";
 import { useAnnotations } from "../hooks/useYAnnotations";
 import type { LogEntry } from "../ydoc";
 
-export default function EventLog() {
-  const { log, addChat } = useAnnotations();
+interface EventLogProps {
+  ydoc: Y.Doc;
+}
+
+export default function EventLog({ ydoc }: EventLogProps) {
+  const { log, addChat } = useAnnotations(ydoc);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
 

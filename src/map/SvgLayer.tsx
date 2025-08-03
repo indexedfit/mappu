@@ -1,20 +1,35 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
+import { WebrtcProvider } from "y-webrtc";
 import { useMap } from "./MapContext";
+import { usePresence } from "./usePresence";
 import type { Annotation } from "../hooks/useYAnnotations";
+
+// Target optic SVG for cursors
+const TARGET_SVG = `
+  <rect data-cursor="1" x="-6" y="-6" width="12" height="12"
+        fill="none" stroke="#ff0088" stroke-width="1.5"/>
+  <line data-cursor="1" x1="-3" y1="0" x2="3" y2="0" stroke="#ff0088" stroke-width="1"/>
+  <line data-cursor="1" x1="0" y1="-3" x2="0" y2="3" stroke="#ff0088" stroke-width="1"/>
+`;
 
 interface SvgLayerProps {
   svgRef: RefObject<SVGSVGElement | null>;
   annotations: Annotation[];
   selected: Set<string>;
+  provider: WebrtcProvider;
 }
 
 export default function SvgLayer({
   svgRef,
   annotations,
   selected,
+  provider,
 }: SvgLayerProps) {
   const map = useMap();
+  
+  // Track presence for awareness
+  usePresence(provider, selected);
 
   // Initialize arrow defs
   useEffect(() => {
@@ -180,6 +195,71 @@ export default function SvgLayer({
       map.off("move", render);
     };
   }, [map, svgRef, annotations, selected]);
+
+  // Render awareness cursors
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const svg = svgRef.current;
+
+    const paint = () => {
+      const states = Array.from(provider.awareness.getStates().entries());
+      const keep = new Set<string>();
+      const localId = provider.awareness.clientID;
+
+      states.forEach(([clientId, state]: [number, any]) => {
+        // Skip local client
+        if (clientId === localId) return;
+        
+        const { cursor, user } = state;
+        if (!cursor) return;
+        
+        const id = `cursor-${user?.pub?.slice(0, 8) ?? clientId}`;
+        keep.add(id);
+
+        let g = svg.querySelector(`#${id}`) as SVGGElement;
+        if (!g) {
+          g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          g.id = id;
+          g.innerHTML = TARGET_SVG;
+          
+          // Color based on user pub key
+          const color = user?.pub ? '#' + user.pub.slice(0, 6) : '#ff0088';
+          g.querySelectorAll('[data-cursor]').forEach(el => {
+            if (el.hasAttribute('stroke')) {
+              el.setAttribute('stroke', color);
+            }
+          });
+          
+          // Add user name label
+          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          text.setAttribute('x', '10');
+          text.setAttribute('y', '-10');
+          text.setAttribute('fill', color);
+          text.setAttribute('font-size', '12');
+          text.setAttribute('font-family', 'system-ui');
+          text.textContent = user?.name ?? 'Anonymous';
+          g.appendChild(text);
+          
+          svg.appendChild(g);
+        }
+        g.setAttribute('transform', `translate(${cursor.x},${cursor.y})`);
+      });
+
+      // Remove disconnected cursors
+      svg.querySelectorAll('[id^="cursor-"]').forEach(n => {
+        if (!keep.has(n.id)) n.remove();
+      });
+    };
+
+    provider.awareness.on('change', paint);
+    paint();
+
+    return () => {
+      provider.awareness.off('change', paint);
+      // Clean up all cursors on unmount
+      svg.querySelectorAll('[id^="cursor-"]').forEach(n => n.remove());
+    };
+  }, [provider, svgRef]);
 
   // Handle wheel events on SVG overlay
   useEffect(() => {

@@ -1,5 +1,9 @@
 import { useRef, useState, useEffect } from "react";
+import * as Y from "yjs";
+import { WebrtcProvider } from "y-webrtc";
 import Toolbar from "./Toolbar";
+import ShareButton from "../board/ShareButton";
+import EventLog from "./EventLog";
 import { useAnnotations } from "../hooks/useYAnnotations";
 import MapShell from "../map/MapShell";
 import { useMap } from "../map/MapContext";
@@ -10,13 +14,19 @@ import MapStats from "../map/MapStats";
 
 export type Tool = "cursor" | "rect" | "circle" | "line" | "text";
 
-function MapContent() {
-  const { annotations } = useAnnotations();
+interface MapCanvasProps {
+  ydoc: Y.Doc;
+  provider: WebrtcProvider;
+  isPersonal?: boolean;
+}
+
+function MapContent({ ydoc, provider, isPersonal }: MapCanvasProps) {
+  const { annotations } = useAnnotations(ydoc);
   const svgRef = useRef<SVGSVGElement>(null);
   const [tool, setTool] = useState<Tool>("cursor");
   const map = useMap();
-  const [selected] = useSelection(map, svgRef.current, tool);
-  useDraw(map, svgRef.current, tool, selected, setTool);
+  const [selected] = useSelection(map, svgRef.current, tool, ydoc);
+  useDraw(map, svgRef.current, tool, selected, ydoc, setTool);
 
   // Handle keyboard shortcuts for tool switching
   useEffect(() => {
@@ -44,17 +54,19 @@ function MapContent() {
   return (
     <>
       <svg ref={svgRef} className="absolute inset-0 z-10 w-full h-full" />
-      <SvgLayer svgRef={svgRef} annotations={annotations} selected={selected} />
+      <SvgLayer svgRef={svgRef} annotations={annotations} selected={selected} provider={provider} />
+      <ShareButton isPersonal={isPersonal} ydoc={ydoc} />
       <Toolbar tool={tool} setTool={setTool} />
-      <MapStats />
+      <MapStats ydoc={ydoc} />
+      <EventLog ydoc={ydoc} />
     </>
   );
 }
 
-export default function MapCanvas() {
+export default function MapCanvas({ ydoc, provider, isPersonal = false }: MapCanvasProps) {
   return (
     <MapShell>
-      <MapContent />
+      <MapContent ydoc={ydoc} provider={provider} isPersonal={isPersonal} />
     </MapShell>
   );
 }
