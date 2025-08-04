@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useBoards, PERSONAL_ID } from './useBoards';
+import { useBoards } from './useBoards';
 
 export default function BoardMenu() {
   const { boards, create } = useBoards();
@@ -8,11 +8,11 @@ export default function BoardMenu() {
   const { boardId } = useParams<{ boardId?: string }>();
   const [open, setOpen] = useState(false);
   
-  const currentBoardId = boardId ?? PERSONAL_ID;
+  const currentBoardId = boardId;
   const currentBoard = boards.find(b => b.id === currentBoardId);
 
   const newBoard = () => {
-    const name = prompt('Name this board:', 'Untitled');
+    const name = prompt('Name this board:', 'My Board');
     if (!name) return;
     const meta = create(name);
     navigate(`/b/${meta.id}`);
@@ -20,11 +20,7 @@ export default function BoardMenu() {
   };
 
   const switchBoard = (id: string) => {
-    if (id === PERSONAL_ID) {
-      navigate('/');
-    } else {
-      navigate(`/b/${id}`);
-    }
+    navigate(`/b/${id}`);
     setOpen(false);
   };
 
@@ -34,7 +30,7 @@ export default function BoardMenu() {
         className="bg-black/60 px-3 py-1 text-white rounded hover:bg-black/70 transition-colors"
         onClick={() => setOpen(o => !o)}
       >
-        📂 {currentBoard?.name ?? 'Personal Board'}
+        📂 {currentBoard?.name ?? 'My Board'}
       </button>
 
       {open && (
@@ -51,7 +47,7 @@ export default function BoardMenu() {
                 onClick={() => switchBoard(b.id)}
               >
                 <span className="truncate">{b.name ?? 'Unnamed'}</span>
-                {b.personal && <span className="text-xs text-gray-400">local</span>}
+                {b.id === currentBoardId && <span className="text-xs text-gray-400 ml-1">(you)</span>}
               </div>
             ))}
           <hr className="my-1 border-white/20" />

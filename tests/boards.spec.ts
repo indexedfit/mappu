@@ -10,22 +10,25 @@ test.describe('Board Management', () => {
     await page.reload();
   });
 
-  test('personal board loads by default', async ({ page }) => {
+  test('first run creates and navigates to UUID board', async ({ page }) => {
     await page.goto('/');
     
-    // Should be on personal board (root path)
-    await expect(page).toHaveURL('/');
+    // Should be redirected to /b/:uuid
+    await expect(page).toHaveURL(/\/b\/.{36}/, { timeout: 5000 });
     
-    // Board menu should show "Personal"
-    const boardButton = page.locator('button:has-text("Personal")');
+    // Board menu should show "My Board"
+    const boardButton = page.locator('button:has-text("My Board")');
     await expect(boardButton).toBeVisible();
   });
 
   test('can create new board', async ({ page }) => {
     await page.goto('/');
     
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
     // Open board menu
-    await page.click('button:has-text("Personal")');
+    await page.click('button:has-text("My Board")');
     
     // Set up dialog handler before triggering it
     page.on('dialog', dialog => {
@@ -35,7 +38,7 @@ test.describe('Board Management', () => {
     });
     
     // Click new board button
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     
     // Wait for navigation to new board
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
@@ -47,8 +50,11 @@ test.describe('Board Management', () => {
   test('boards persist across page reloads', async ({ page }) => {
     await page.goto('/');
     
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
     // Create a board
-    await page.click('button:has-text("Personal")');
+    await page.click('button:has-text("My Board")');
     
     page.on('dialog', dialog => {
       if (dialog.type() === 'prompt') {
@@ -56,7 +62,7 @@ test.describe('Board Management', () => {
       }
     });
     
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
     const boardUrl = page.url();
@@ -68,13 +74,17 @@ test.describe('Board Management', () => {
     await expect(page).toHaveURL(boardUrl);
     await expect(page.locator('button:has-text("Persistent Board")')).toBeVisible();
     
-    // Board should appear in menu
+    // Board should appear in menu with (you) indicator showing it's current
     await page.click('button:has-text("Persistent Board")');
-    await expect(page.locator('button:has-text("Persistent Board").bg-white\\/5')).toBeVisible();
+    await expect(page.locator('text=Persistent Board(you)')).toBeVisible();
   });
 
   test('can switch between boards', async ({ page }) => {
     await page.goto('/');
+    
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    const initialBoardUrl = page.url();
     
     // Set up dialog handler for all prompts
     let boardCounter = 1;
@@ -85,14 +95,14 @@ test.describe('Board Management', () => {
     });
     
     // Create first board
-    await page.click('button:has-text("Personal")');
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("My Board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     const board1Url = page.url();
     
     // Create second board
     await page.click('button:has-text("Board 1")');
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     const board2Url = page.url();
     
@@ -103,55 +113,65 @@ test.describe('Board Management', () => {
     await page.click('button:has-text("Board 1")');
     await expect(page).toHaveURL(board1Url);
     
-    // Switch to Personal board
+    // Switch to initial board
     await page.click('button:has-text("Board 1")');
-    await page.click('button:has-text("Personal")');
-    await expect(page).toHaveURL('/');
+    await page.click('button:has-text("My Board")');
+    await expect(page).toHaveURL(initialBoardUrl);
   });
 
   test('board dropdown closes when clicking outside', async ({ page }) => {
     await page.goto('/');
     
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
     // Open dropdown
-    await page.click('button:has-text("Personal")');
-    await expect(page.locator('button:has-text("+ New board")')).toBeVisible();
+    await page.click('button:has-text("My Board")');
+    await expect(page.locator('button:has-text("➕ New board")')).toBeVisible();
     
     // Click outside
     await page.click('body', { position: { x: 10, y: 10 } });
     
     // Dropdown should close
-    await expect(page.locator('button:has-text("+ New board")')).not.toBeVisible();
+    await expect(page.locator('button:has-text("➕ New board")')).not.toBeVisible();
   });
 
   test('empty board name is rejected', async ({ page }) => {
     await page.goto('/');
     
-    await page.click('button:has-text("Personal")');
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    const initialUrl = page.url();
+    
+    await page.click('button:has-text("My Board")');
     
     // First try - dismiss dialog
     page.once('dialog', dialog => dialog.dismiss());
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     
-    // Should still be on personal board
-    await expect(page).toHaveURL('/');
-    await expect(page.locator('button:has-text("Personal")').first()).toBeVisible();
+    // Should still be on same board
+    await expect(page).toHaveURL(initialUrl);
+    await expect(page.locator('button:has-text("My Board")').first()).toBeVisible();
     
     // Second try - empty string
     page.once('dialog', dialog => dialog.accept(''));
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     
-    // Should still be on personal board
-    await expect(page).toHaveURL('/');
+    // Should still be on same board
+    await expect(page).toHaveURL(initialUrl);
   });
 
-  test('share button appears on both personal and non-personal boards', async ({ page }) => {
+  test('share button appears on all boards', async ({ page }) => {
     await page.goto('/');
     
-    // Personal board should have share button with different text
-    await expect(page.locator('button[data-share-btn]:has-text("🔗 Share")')).toBeVisible();
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
+    // Board should have share button
+    await expect(page.locator('button[data-share-btn]:has-text("📋 Share")')).toBeVisible();
     
     // Create a new board
-    await page.click('button:has-text("Personal")');
+    await page.click('button:has-text("My Board")');
     
     page.on('dialog', dialog => {
       if (dialog.type() === 'prompt') {
@@ -159,20 +179,23 @@ test.describe('Board Management', () => {
       }
     });
     
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
-    // Share button should appear with different text
+    // Share button should appear with same text
     await expect(page.locator('button[data-share-btn]:has-text("📋 Share")')).toBeVisible();
   });
 
-  test('share button on personal board duplicates and navigates', async ({ page, context }) => {
+  test('share button copies link with invite token', async ({ page, context }) => {
     // Grant clipboard permissions
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     
     await page.goto('/');
     
-    // Draw a shape on personal board
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
+    // Draw a shape on board
     await page.click('button:has-text("▭")');
     await page.waitForTimeout(200); // Wait for tool to be selected
     await page.mouse.move(100, 100);
@@ -183,20 +206,10 @@ test.describe('Board Management', () => {
     // Verify shape exists
     await expect(page.locator('rect[data-anno]')).toHaveCount(1);
     
-    // Set up dialog handler for the prompt
-    page.on('dialog', dialog => {
-      if (dialog.type() === 'prompt') {
-        dialog.accept('Duplicated Board');
-      }
-    });
+    // Click share button
+    await page.click('button[data-share-btn]:has-text("📋 Share")');
     
-    // Click share button on personal board
-    await page.click('button[data-share-btn]:has-text("🔗 Share")');
-    
-    // Should navigate to new board
-    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
-    
-    // Button should show "Copied!" after navigation
+    // Button should show "Copied!"
     await expect(page.locator('button:has-text("✓ Copied!")')).toBeVisible();
     
     // After 2 seconds, should revert to normal share button
@@ -212,14 +225,17 @@ test.describe('Board Management', () => {
     await expect(page.locator('rect[data-anno]')).toHaveCount(1);
   });
   
-  test('share button on non-personal board copies link', async ({ page, context }) => {
+  test('clipboard contains URL with invite token', async ({ page, context }) => {
     // Grant clipboard permissions
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     
     await page.goto('/');
     
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
     // Create a board
-    await page.click('button:has-text("Personal")');
+    await page.click('button:has-text("My Board")');
     
     page.on('dialog', dialog => {
       if (dialog.type() === 'prompt') {
@@ -227,7 +243,7 @@ test.describe('Board Management', () => {
       }
     });
     
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
     // Click share button
@@ -246,11 +262,14 @@ test.describe('Board Management', () => {
     expect(clipboardText).toContain('#inv=');
   });
 
-  test('boards are sorted with personal first, then by last opened', async ({ page }) => {
+  test('boards are sorted by last opened descending', async ({ page }) => {
     await page.goto('/');
     
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
     // Set up dialog handler
-    let boardNames = ['Old Board', 'New Board', 'Duplicated Board'];
+    const boardNames = ['Old Board', 'New Board'];
     let boardIndex = 0;
     page.on('dialog', dialog => {
       if (dialog.type() === 'prompt' && boardIndex < boardNames.length) {
@@ -259,47 +278,44 @@ test.describe('Board Management', () => {
     });
     
     // Create first board
-    await page.click('button:has-text("Personal")');
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("My Board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
     await page.waitForTimeout(100);
     
     // Create second board
     await page.click('button:has-text("Old Board")');
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
-    // Go back to personal board
+    // Go back to first created board
     await page.click('button:has-text("New Board")');
-    await page.click('button:has-text("Personal")');
-    await expect(page).toHaveURL('/');
-    
-    // Share personal board to create duplicated board
-    await page.click('button[data-share-btn]:has-text("🔗 Share")');
+    await page.click('button:has-text("Old Board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
     // Open dropdown
-    await page.click('button:has-text("Duplicated Board")');
+    await page.click('button:has-text("Old Board")');
     
     // Get all board buttons
-    const boardButtons = page.locator('.bg-black\\/90 button:has-text("Personal"), .bg-black\\/90 button:has-text("Board")');
+    const boardButtons = page.locator('.bg-black\\/90 button:has-text("Board"), .bg-black\\/90 button:has-text("My Board")');
     const boardNamesArray = await boardButtons.allTextContents();
     
-    // Personal should be first
-    expect(boardNamesArray[0]).toContain('Personal');
-    // Duplicated Board should be second (most recently created via share)
-    expect(boardNamesArray[1]).toContain('Duplicated Board');
-    // New Board should be before Old Board
+    // Old Board should be first (most recently accessed)
+    expect(boardNamesArray[0]).toContain('Old Board');
+    // New Board should be before My Board
     const newIndex = boardNamesArray.findIndex(name => name.includes('New Board'));
-    const oldIndex = boardNamesArray.findIndex(name => name.includes('Old Board'));
-    expect(newIndex).toBeLessThan(oldIndex);
+    const untitledIndex = boardNamesArray.findIndex(name => name.includes('My Board'));
+    expect(newIndex).toBeLessThan(untitledIndex);
   });
 
   test('annotations are isolated between boards', async ({ page }) => {
     await page.goto('/');
     
-    // Create annotation on personal board
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
+    // Create annotation on first board
     await page.click('button:has-text("▭")');
     await page.waitForTimeout(200); // Wait for tool to be selected
     await page.mouse.move(100, 100);
@@ -311,7 +327,7 @@ test.describe('Board Management', () => {
     await expect(page.locator('rect[data-anno]')).toHaveCount(1);
     
     // Create new board
-    await page.click('button:has-text("Personal")');
+    await page.click('button:has-text("My Board")');
     
     page.on('dialog', dialog => {
       if (dialog.type() === 'prompt') {
@@ -319,25 +335,31 @@ test.describe('Board Management', () => {
       }
     });
     
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
     // New board should have no annotations
     await expect(page.locator('rect[data-anno]')).toHaveCount(0);
     
-    // Switch back to personal board
+    // Switch back to first board
     await page.click('button:has-text("Empty Board")');
-    await page.click('button:has-text("Personal")');
-    await expect(page).toHaveURL('/');
+    await page.click('button:has-text("My Board")');
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
-    // Annotation should still exist on personal board
+    // Annotation should still exist on first board
     await expect(page.locator('rect[data-anno]')).toHaveCount(1);
   });
 
-  test('duplicate retains shapes when sharing from personal board', async ({ page }) => {
+  test('share button copies invite link', async ({ page, context }) => {
+    // Grant clipboard permissions
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    
     await page.goto('/');
     
-    // Draw multiple shapes on personal board
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
+    // Draw multiple shapes on board
     await page.click('button:has-text("▭")'); // Rectangle tool
     await page.waitForTimeout(200); // Wait for tool to be selected
     await page.mouse.move(100, 100);
@@ -356,29 +378,25 @@ test.describe('Board Management', () => {
     await expect(page.locator('rect[data-anno]')).toHaveCount(1);
     await expect(page.locator('circle[data-anno]')).toHaveCount(1);
     
-    // Set up dialog handler
-    page.on('dialog', dialog => {
-      if (dialog.type() === 'prompt') {
-        dialog.accept('Duplicated With Shapes');
-      }
-    });
+    // Click share button to copy link
+    await page.click('button[data-share-btn]:has-text("📋 Share")');
     
-    // Click share button to duplicate
-    await page.click('button[data-share-btn]:has-text("🔗 Share")');
+    // Button should show "Copied!"
+    await expect(page.locator('button:has-text("✓ Copied!")')).toBeVisible();
     
-    // Wait for navigation to new board
-    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
-    
-    // Same shapes should exist on the new board
-    await expect(page.locator('rect[data-anno]')).toHaveCount(1);
-    await expect(page.locator('circle[data-anno]')).toHaveCount(1);
+    // Verify clipboard contains invite link
+    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clipboardText).toContain('#inv=');
   });
 
   test('invite token tamper shows alert and sets view-only mode', async ({ page }) => {
     await page.goto('/');
     
+    // Wait for initial board creation and redirect
+    await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
+    
     // Create a new board
-    await page.click('button:has-text("Personal")');
+    await page.click('button:has-text("My Board")');
     
     page.on('dialog', dialog => {
       if (dialog.type() === 'prompt') {
@@ -386,11 +404,10 @@ test.describe('Board Management', () => {
       }
     });
     
-    await page.click('button:has-text("+ New board")');
+    await page.click('button:has-text("➕ New board")');
     await page.waitForURL(/\/b\/.+/, { timeout: 5000 });
     
     const boardUrl = page.url();
-    const boardId = boardUrl.split('/b/')[1];
     
     // Set up alert handler
     let alertShown = false;

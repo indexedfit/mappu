@@ -40,7 +40,7 @@ export default function EventLog({ ydoc }: EventLogProps) {
         className="mb-1 w-full rounded bg-black/60 py-1 text-white"
         onClick={() => setOpen((o) => !o)}
       >
-        {open ? "Close" : "Open"} Event Log
+        {open ? "Close" : "Open"} Event Log
       </button>
       {open && (
         <div className="flex max-h-80 flex-col overflow-hidden rounded-lg bg-black/90 shadow-2xl border border-gray-700">

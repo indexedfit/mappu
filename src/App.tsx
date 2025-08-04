@@ -2,17 +2,21 @@ import { useEffect } from "react";
 import { createBrowserRouter, RouterProvider, useNavigate } from "react-router-dom";
 import BoardRouter from "./board/BoardRouter";
 import BoardMenu from "./board/BoardMenu";
-import { loadLastBoard } from "./board/useBoards";
+import { loadLastBoard, useBoards } from "./board/useBoards";
 
 function BoardWrapper() {
   const navigate = useNavigate();
+  const { create } = useBoards();
   
   useEffect(() => {
-    // Redirect to last board if on root path
     if (window.location.pathname === '/') {
       const lastBoard = loadLastBoard();
       if (lastBoard) {
         navigate(`/b/${lastBoard}`, { replace: true });
+      } else {
+        // First run: create file-like board
+        const { id } = create('My Board');
+        navigate(`/b/${id}`, { replace: true });
       }
     }
   }, [navigate]);

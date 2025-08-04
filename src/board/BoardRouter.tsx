@@ -4,22 +4,18 @@ import { WebrtcProvider } from 'y-webrtc';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { useParams } from 'react-router-dom';
 import MapCanvas from '../components/MapCanvas';
-import { storeLastBoard, PERSONAL_ID, useBoards } from './useBoards';
+import { storeLastBoard, useBoards } from './useBoards';
+import { BoardStore } from './BoardStore';
+import { NetworkLink } from './NetworkLink';
 import { ID } from '../identity';
 
-// Default signaling servers, can be overridden by env var
-const DEFAULT_SIGNALS = [
-  'wss://signaling.yjs.dev',
-  'wss://y-webrtc-signalling-eu.herokuapp.com',
-];
-
-const SIGNALS = import.meta.env.VITE_SIGNALING?.split(',') ?? DEFAULT_SIGNALS;
 const CURRENT_SCHEMA_VERSION = 1;
 
 interface DocProvider {
   doc: Y.Doc;
   provider: WebrtcProvider;
   persistence: IndexeddbPersistence | null;
+  roomName: string;
 }
 
 export default function BoardRouter() {
@@ -28,44 +24,31 @@ export default function BoardRouter() {
   const [docProv, setDocProv] = useState<DocProvider>();
 
   useEffect(() => {
-    // Determine board ID (fallback to personal default)
-    const id = boardId ?? PERSONAL_ID;
-    const roomName = id === PERSONAL_ID ? 'local-default' : id;
+    if (!boardId) return;
 
     // Clean up previous doc/provider if exists
     if (docProv) {
-      docProv.provider.destroy();
-      docProv.doc.destroy();
-      docProv.persistence?.destroy();
+      NetworkLink.detach(docProv.roomName);
+      BoardStore.destroy(docProv.roomName);
     }
 
-    // Create new Y.Doc and provider
-    const doc = new Y.Doc();
-    const provider = new WebrtcProvider(roomName, doc, { 
-      signaling: SIGNALS 
-    });
+    // Use BoardStore to get/create Y.Doc and persistence
+    const { doc, id: roomName } = BoardStore.open(boardId);
+    const provider = NetworkLink.attach(roomName, doc);
+    const persistence = BoardStore.getPersistence(roomName);
 
-    // Set user identity in awareness
-    provider.awareness.setLocalStateField('user', {
-      pub: ID.pub,
-      name: ID.name,
-    });
-
-    // Initialize IndexedDB persistence
-    let persistence: IndexeddbPersistence | null = null;
-    try {
-      persistence = new IndexeddbPersistence(roomName, doc);
-      
+    // Initialize schema and handle sharing data
+    if (persistence) {
       persistence.on('synced', () => {
         console.log('Content from IndexedDB loaded for board:', roomName);
         
         // Check for initialization data from share/duplicate
-        const initData = sessionStorage.getItem(`board-init-${id}`);
+        const initData = sessionStorage.getItem(`board-init-${boardId}`);
         if (initData) {
           try {
             const update = new Uint8Array(atob(initData).split('').map(c => c.charCodeAt(0)));
             Y.applyUpdate(doc, update);
-            sessionStorage.removeItem(`board-init-${id}`);
+            sessionStorage.removeItem(`board-init-${boardId}`);
           } catch (error) {
             console.error('Failed to apply initialization data:', error);
           }
@@ -83,8 +66,8 @@ export default function BoardRouter() {
         
         meta.set('schemaVersion', CURRENT_SCHEMA_VERSION);
         
-        // Store owner pub key if this is the first time sharing
-        if (id !== PERSONAL_ID && !meta.get('ownerPub')) {
+        // Store owner pub key for sharing
+        if (!meta.get('ownerPub')) {
           meta.set('ownerPub', ID.pub);
         }
       });
@@ -96,23 +79,18 @@ export default function BoardRouter() {
           persistence?.clearData();
         }
       });
-    } catch (error) {
-      console.warn('Failed to initialize IndexedDB persistence:', error);
     }
 
-    // Store last board for auto-reload (except personal)
-    if (id !== PERSONAL_ID) {
-      storeLastBoard(id);
-      touch(id);
-    }
+    // Store last board for auto-reload
+    storeLastBoard(boardId);
+    touch(boardId);
 
-    setDocProv({ doc, provider, persistence });
+    setDocProv({ doc, provider, persistence, roomName });
 
     // Cleanup on unmount
     return () => {
-      provider.destroy();
-      doc.destroy();
-      persistence?.destroy();
+      NetworkLink.detach(roomName);
+      BoardStore.destroy(roomName);
     };
   }, [boardId]);
 
@@ -120,10 +98,9 @@ export default function BoardRouter() {
 
   return (
     <MapCanvas
-      key={boardId ?? PERSONAL_ID}
+      key={boardId}
       ydoc={docProv.doc}
       provider={docProv.provider}
-      isPersonal={boardId === undefined}
     />
   );
 }

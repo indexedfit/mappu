@@ -17,10 +17,9 @@ export type Tool = "cursor" | "rect" | "circle" | "line" | "text";
 interface MapCanvasProps {
   ydoc: Y.Doc;
   provider: WebrtcProvider;
-  isPersonal?: boolean;
 }
 
-function MapContent({ ydoc, provider, isPersonal }: MapCanvasProps) {
+function MapContent({ ydoc, provider }: MapCanvasProps) {
   const { annotations } = useAnnotations(ydoc);
   const svgRef = useRef<SVGSVGElement>(null);
   const [tool, setTool] = useState<Tool>("cursor");
@@ -55,7 +54,7 @@ function MapContent({ ydoc, provider, isPersonal }: MapCanvasProps) {
     <>
       <svg ref={svgRef} className="absolute inset-0 z-10 w-full h-full" />
       <SvgLayer svgRef={svgRef} annotations={annotations} selected={selected} provider={provider} tool={tool} />
-      <ShareButton isPersonal={isPersonal} ydoc={ydoc} />
+      <ShareButton ydoc={ydoc} />
       <Toolbar tool={tool} setTool={setTool} />
       <MapStats ydoc={ydoc} />
       <EventLog ydoc={ydoc} />
@@ -63,10 +62,10 @@ function MapContent({ ydoc, provider, isPersonal }: MapCanvasProps) {
   );
 }
 
-export default function MapCanvas({ ydoc, provider, isPersonal = false }: MapCanvasProps) {
+export default function MapCanvas({ ydoc, provider }: MapCanvasProps) {
   return (
     <MapShell>
-      <MapContent ydoc={ydoc} provider={provider} isPersonal={isPersonal} />
+      <MapContent ydoc={ydoc} provider={provider} />
     </MapShell>
   );
 }
