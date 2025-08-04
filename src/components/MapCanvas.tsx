@@ -54,7 +54,7 @@ function MapContent({ ydoc, provider, isPersonal }: MapCanvasProps) {
   return (
     <>
       <svg ref={svgRef} className="absolute inset-0 z-10 w-full h-full" />
-      <SvgLayer svgRef={svgRef} annotations={annotations} selected={selected} provider={provider} />
+      <SvgLayer svgRef={svgRef} annotations={annotations} selected={selected} provider={provider} tool={tool} />
       <ShareButton isPersonal={isPersonal} ydoc={ydoc} />
       <Toolbar tool={tool} setTool={setTool} />
       <MapStats ydoc={ydoc} />

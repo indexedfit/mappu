@@ -28,9 +28,12 @@ export function useDraw(
       // Don't process if clicking on contenteditable
       if ((e.target as Element).getAttribute?.('contenteditable') === 'true') return;
       
-      // Don't process if clicking on delete button or annotation
+      // Don't process if clicking on delete button
       const target = e.target as Element;
-      if (target.closest('#delete-button') || target.hasAttribute('data-anno')) return;
+      if (target.closest('#delete-button')) return;
+      
+      // Note: We do NOT check for data-anno here anymore
+      // This allows drawing inside existing annotations
       
       const point = { x: e.clientX, y: e.clientY };
       drawing = true;
@@ -84,7 +87,11 @@ export function useDraw(
         });
         
         // Handle Enter key and blur
+        let saved = false;
         const saveText = () => {
+          if (saved) return; // Prevent double save
+          saved = true;
+          
           const text = div.textContent?.trim();
           if (text) {
             const id = crypto.randomUUID();
@@ -106,6 +113,7 @@ export function useDraw(
             saveText();
           } else if (e.key === "Escape") {
             e.preventDefault();
+            saved = true; // Mark as saved to prevent blur save
             foreignObj.remove();
             // Switch back to cursor tool
             if (onToolChange) {

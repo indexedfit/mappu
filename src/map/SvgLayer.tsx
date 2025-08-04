@@ -4,6 +4,7 @@ import { WebrtcProvider } from "y-webrtc";
 import { useMap } from "./MapContext";
 import { usePresence } from "./usePresence";
 import type { Annotation } from "../hooks/useYAnnotations";
+import type { Tool } from "../components/MapCanvas";
 
 // Target optic SVG for cursors
 const TARGET_SVG = `
@@ -18,6 +19,7 @@ interface SvgLayerProps {
   annotations: Annotation[];
   selected: Set<string>;
   provider: WebrtcProvider;
+  tool: Tool;
 }
 
 export default function SvgLayer({
@@ -25,6 +27,7 @@ export default function SvgLayer({
   annotations,
   selected,
   provider,
+  tool,
 }: SvgLayerProps) {
   const map = useMap();
   
@@ -70,10 +73,14 @@ export default function SvgLayer({
           el = document.createElementNS("http://www.w3.org/2000/svg", tag);
           el.id = ev.id;
           el.dataset.anno = "1";
-          el.style.pointerEvents = "all";
-          el.style.cursor = "pointer";
           svg.appendChild(el);
         }
+        
+        // Update pointer events based on current tool
+        // Only make annotations clickable in cursor mode
+        // In drawing modes, annotations should not block pointer events
+        el.style.pointerEvents = tool === "cursor" ? "all" : "none";
+        el.style.cursor = tool === "cursor" ? "pointer" : "default";
 
         // style
         if (ev.type !== "text") {
@@ -167,6 +174,10 @@ export default function SvgLayer({
             selected.has(ev.id) ? "#ff0088" : "#00ff88",
           );
           arrowHead.setAttribute("stroke", "none");
+          
+          // Update pointer events for arrow head too
+          arrowHead.style.pointerEvents = tool === "cursor" ? "all" : "none";
+          arrowHead.style.cursor = tool === "cursor" ? "pointer" : "default";
 
           // Add arrow head to keep set
           keep.add(`arrow-head-${ev.id}`);
@@ -194,7 +205,7 @@ export default function SvgLayer({
     return () => {
       map.off("move", render);
     };
-  }, [map, svgRef, annotations, selected]);
+  }, [map, svgRef, annotations, selected, tool]);
 
   // Render awareness cursors
   useEffect(() => {
