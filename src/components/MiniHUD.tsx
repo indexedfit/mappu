@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as Y from 'yjs';
-import { WebrtcProvider } from 'y-webrtc';
 import { useBoardContext } from '../board/BoardContext';
+import type { NetworkProvider } from '../types/provider';
 import { useAnnotations } from '../hooks/useYAnnotations';
 
 function useFPS() {
@@ -33,7 +33,7 @@ function useFPS() {
   return fps;
 }
 
-function usePeers(provider: WebrtcProvider | { awareness: any } | null) {
+function usePeers(provider: NetworkProvider | null) {
   const [peers, setPeers] = useState(0);
   
   useEffect(() => {
@@ -60,7 +60,7 @@ export default function MiniHUD() {
   const { ydoc, provider } = useBoardContext();
   const fps = useFPS();
   const peers = usePeers(provider);
-  const isOnline = provider instanceof WebrtcProvider;
+  const isOnline = provider && provider.awareness;
   
   // Always call hooks - just pass a dummy doc if needed
   const [dummyDoc] = useState(() => new Y.Doc());

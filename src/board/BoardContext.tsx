@@ -1,14 +1,13 @@
 import { createContext, useContext } from 'react';
 import * as Y from 'yjs';
-import { WebrtcProvider } from 'y-webrtc';
-import * as awarenessProtocol from 'y-protocols/awareness';
+import type { NetworkProvider } from '../types/provider';
 
 interface BoardContextType {
   ydoc: Y.Doc | null;
   isPersonal: boolean;
-  provider: WebrtcProvider | { awareness: awarenessProtocol.Awareness; destroy?: () => void } | null;
+  provider: NetworkProvider | null;
   boardId: string;
-  setProvider?: (provider: WebrtcProvider | { awareness: awarenessProtocol.Awareness; destroy?: () => void } | null) => void;
+  setProvider?: (provider: NetworkProvider | null) => void;
 }
 
 const BoardContext = createContext<BoardContextType>({ 

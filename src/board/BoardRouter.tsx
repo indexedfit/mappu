@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
+import type { NetworkProvider } from '../types/provider';
 import * as Y from 'yjs';
-import { WebrtcProvider } from 'y-webrtc';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { useParams } from 'react-router-dom';
 import MapCanvas from '../components/MapCanvas';
@@ -13,7 +13,7 @@ const CURRENT_SCHEMA_VERSION = 1;
 
 interface DocProvider {
   doc: Y.Doc;
-  provider: WebrtcProvider;
+  provider: NetworkProvider;
   persistence: IndexeddbPersistence | null;
   roomName: string;
 }
@@ -28,8 +28,12 @@ export default function BoardRouter() {
 
     // Clean up previous doc/provider if exists
     if (docProv) {
-      NetworkLink.detach(docProv.roomName);
-      BoardStore.destroy(docProv.roomName);
+      try {
+        NetworkLink.detach(docProv.roomName);
+        BoardStore.destroy(docProv.roomName);
+      } catch (error) {
+        console.warn('Error during cleanup:', error);
+      }
     }
 
     // Use BoardStore to get/create Y.Doc and persistence
@@ -89,8 +93,12 @@ export default function BoardRouter() {
 
     // Cleanup on unmount
     return () => {
-      NetworkLink.detach(roomName);
-      BoardStore.destroy(roomName);
+      try {
+        NetworkLink.detach(roomName);
+        BoardStore.destroy(roomName);
+      } catch (error) {
+        console.warn('Error during unmount cleanup:', error);
+      }
     };
   }, [boardId]);
 

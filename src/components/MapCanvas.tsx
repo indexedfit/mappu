@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import * as Y from "yjs";
-import { WebrtcProvider } from "y-webrtc";
+import type { NetworkProvider } from "../types/provider";
 import Toolbar from "./Toolbar";
 import ShareButton from "../board/ShareButton";
 import EventLog from "./EventLog";
@@ -16,7 +16,7 @@ export type Tool = "cursor" | "rect" | "circle" | "line" | "text";
 
 interface MapCanvasProps {
   ydoc: Y.Doc;
-  provider: WebrtcProvider;
+  provider: NetworkProvider;
 }
 
 function MapContent({ ydoc, provider }: MapCanvasProps) {

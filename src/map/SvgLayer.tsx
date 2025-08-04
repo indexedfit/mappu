@@ -1,24 +1,21 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
-import { WebrtcProvider } from "y-webrtc";
 import { useMap } from "./MapContext";
+import type { NetworkProvider } from "../types/provider";
 import { usePresence } from "./usePresence";
 import type { Annotation } from "../hooks/useYAnnotations";
 import type { Tool } from "../components/MapCanvas";
 
 // Target optic SVG for cursors
 const TARGET_SVG = `
-  <rect data-cursor="1" x="-6" y="-6" width="12" height="12"
-        fill="none" stroke="#ff0088" stroke-width="1.5"/>
-  <line data-cursor="1" x1="-3" y1="0" x2="3" y2="0" stroke="#ff0088" stroke-width="1"/>
-  <line data-cursor="1" x1="0" y1="-3" x2="0" y2="3" stroke="#ff0088" stroke-width="1"/>
+  <polygon data-cursor="1" points="0,0  8,14  -8,14" fill="#ff0088" />
 `;
 
 interface SvgLayerProps {
   svgRef: RefObject<SVGSVGElement | null>;
   annotations: Annotation[];
   selected: Set<string>;
-  provider: WebrtcProvider;
+  provider: NetworkProvider;
   tool: Tool;
 }
 
@@ -217,11 +214,12 @@ export default function SvgLayer({
       const keep = new Set<string>();
       const localId = provider.awareness.clientID;
 
-      states.forEach(([clientId, state]: [number, any]) => {
+      states.forEach((entry) => {
+        const [clientId, state] = entry as [number, any];
         // Skip local client
         if (clientId === localId) return;
         
-        const { cursor, user } = state;
+        const { cursor, user, zoom } = state;
         if (!cursor) return;
         
         const id = `cursor-${user?.pub?.slice(0, 8) ?? clientId}`;
@@ -236,24 +234,17 @@ export default function SvgLayer({
           // Color based on user pub key
           const color = user?.pub ? '#' + user.pub.slice(0, 6) : '#ff0088';
           g.querySelectorAll('[data-cursor]').forEach(el => {
-            if (el.hasAttribute('stroke')) {
-              el.setAttribute('stroke', color);
+            if (el.hasAttribute('fill')) {
+              el.setAttribute('fill', color);
             }
           });
           
-          // Add user name label
-          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          text.setAttribute('x', '10');
-          text.setAttribute('y', '-10');
-          text.setAttribute('fill', color);
-          text.setAttribute('font-size', '12');
-          text.setAttribute('font-family', 'system-ui');
-          text.textContent = user?.name ?? 'Anonymous';
-          g.appendChild(text);
-          
           svg.appendChild(g);
         }
-        g.setAttribute('transform', `translate(${cursor.x},${cursor.y})`);
+        const remoteZoom = zoom ?? 0;
+        const localZoom  = map.getZoom();
+        const scale = Math.pow(2, remoteZoom - localZoom);   // doubles size per zoom level diff
+        g.setAttribute('transform', `translate(${cursor.x},${cursor.y}) scale(${scale})`);
       });
 
       // Remove disconnected cursors
@@ -270,7 +261,7 @@ export default function SvgLayer({
       // Clean up all cursors on unmount
       svg.querySelectorAll('[id^="cursor-"]').forEach(n => n.remove());
     };
-  }, [provider, svgRef]);
+  }, [provider, svgRef, map]);
 
   // Handle wheel events on SVG overlay
   useEffect(() => {
