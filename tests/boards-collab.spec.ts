@@ -57,9 +57,9 @@ test.describe('Multiplayer Collaboration', () => {
       await pageA.mouse.move(300, 300);
       await pageA.mouse.move(350, 350);
       
-      // Context B should see cursor squares from context A
-      // Note: cursor squares are shown in svg with data-cursor attribute
-      await expect(pageB.locator('svg [data-cursor]')).toBeVisible({ timeout: 2000 });
+      // Context B should see cursor triangles from context A
+      // Note: cursor triangles are shown in svg with data-cursor attribute
+      await expect(pageB.locator('svg polygon[data-cursor]')).toBeVisible({ timeout: 2000 });
       
       // Draw a circle in context B
       await pageB.click('button:has-text("◯")');

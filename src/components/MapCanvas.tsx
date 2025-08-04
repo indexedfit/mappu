@@ -16,7 +16,7 @@ export type Tool = "cursor" | "rect" | "circle" | "line" | "text";
 
 interface MapCanvasProps {
   ydoc: Y.Doc;
-  provider: NetworkProvider;
+  provider: NetworkProvider | null;
 }
 
 function MapContent({ ydoc, provider }: MapCanvasProps) {
@@ -54,7 +54,7 @@ function MapContent({ ydoc, provider }: MapCanvasProps) {
     <>
       <svg ref={svgRef} className="absolute inset-0 z-10 w-full h-full" />
       <SvgLayer svgRef={svgRef} annotations={annotations} selected={selected} provider={provider} tool={tool} />
-      <ShareButton ydoc={ydoc} />
+      <ShareButton ydoc={ydoc} provider={provider} />
       <Toolbar tool={tool} setTool={setTool} />
       <MapStats ydoc={ydoc} />
       <EventLog ydoc={ydoc} />

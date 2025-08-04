@@ -6,16 +6,18 @@ import { usePresence } from "./usePresence";
 import type { Annotation } from "../hooks/useYAnnotations";
 import type { Tool } from "../components/MapCanvas";
 
-// Target optic SVG for cursors
+// Crosshair cursor from crosshair.svg - scaled to 32x32 and centered
 const TARGET_SVG = `
-  <polygon data-cursor="1" points="0,0  8,14  -8,14" fill="#ff0088" />
+  <g data-cursor="1" transform="scale(2) translate(-8, -8)">
+    <path d="M7 7h2v2H7V7zm0-7h2v5H7V0zm0 11h2v5H7v-5zm4-4h5v2h-5V7zM0 7h5v2H0V7z" fill="#ff0088" fill-rule="evenodd"/>
+  </g>
 `;
 
 interface SvgLayerProps {
   svgRef: RefObject<SVGSVGElement | null>;
   annotations: Annotation[];
   selected: Set<string>;
-  provider: NetworkProvider;
+  provider: NetworkProvider | null;
   tool: Tool;
 }
 
@@ -206,7 +208,7 @@ export default function SvgLayer({
 
   // Render awareness cursors
   useEffect(() => {
-    if (!svgRef.current) return;
+    if (!svgRef.current || !provider) return;
     const svg = svgRef.current;
 
     const paint = () => {
@@ -223,6 +225,18 @@ export default function SvgLayer({
         if (!cursor) return;
         
         const id = `cursor-${user?.pub?.slice(0, 8) ?? clientId}`;
+        
+        // Convert map coordinates to screen coordinates
+        let x, y;
+        if (cursor.lng !== undefined && cursor.lat !== undefined) {
+          const point = map.project([cursor.lng, cursor.lat]);
+          x = point.x;
+          y = point.y;
+        } else {
+          // Fallback to screen coordinates if map coords not available
+          x = cursor.x || cursor.screenX || 0;
+          y = cursor.y || cursor.screenY || 0;
+        }
         keep.add(id);
 
         let g = svg.querySelector(`#${id}`) as SVGGElement;
@@ -233,18 +247,21 @@ export default function SvgLayer({
           
           // Color based on user pub key
           const color = user?.pub ? '#' + user.pub.slice(0, 6) : '#ff0088';
-          g.querySelectorAll('[data-cursor]').forEach(el => {
-            if (el.hasAttribute('fill')) {
-              el.setAttribute('fill', color);
-            }
+          // Color all stroke and fill elements within the cursor
+          g.querySelectorAll('[stroke]').forEach(el => {
+            el.setAttribute('stroke', color);
+          });
+          g.querySelectorAll('[fill]:not([fill="none"])').forEach(el => {
+            el.setAttribute('fill', color);
           });
           
           svg.appendChild(g);
         }
-        const remoteZoom = zoom ?? 0;
+        const remoteZoom = zoom ?? map.getZoom();
         const localZoom  = map.getZoom();
-        const scale = Math.pow(2, remoteZoom - localZoom);   // doubles size per zoom level diff
-        g.setAttribute('transform', `translate(${cursor.x},${cursor.y}) scale(${scale})`);
+        // Correct scaling - cursor should appear same size relative to map features
+        const scale = Math.pow(2, localZoom - remoteZoom);
+        g.setAttribute('transform', `translate(${x},${y}) scale(${scale})`);
       });
 
       // Remove disconnected cursors
@@ -255,9 +272,14 @@ export default function SvgLayer({
 
     provider.awareness.on('change', paint);
     paint();
+    
+    // Also repaint cursors when map moves (pan/zoom)
+    const repaintOnMove = () => paint();
+    map.on('move', repaintOnMove);
 
     return () => {
       provider.awareness.off('change', paint);
+      map.off('move', repaintOnMove);
       // Clean up all cursors on unmount
       svg.querySelectorAll('[id^="cursor-"]').forEach(n => n.remove());
     };
