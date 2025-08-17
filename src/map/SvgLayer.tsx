@@ -5,6 +5,7 @@ import type { NetworkProvider } from "../types/provider";
 import { usePresence } from "./usePresence";
 import type { Annotation } from "../hooks/useYAnnotations";
 import type { Tool } from "../components/MapCanvas";
+import { isVisibleAt, interpolateTrack } from '../time/timeUtils';
 
 // Crosshair cursor from crosshair.svg - scaled to 32x32 and centered
 const TARGET_SVG = `
@@ -59,42 +60,50 @@ export default function SvgLayer({
     if (!map || !svgRef.current) return;
 
     const svg = svgRef.current;
+    const yMeta = (map as any)._ydoc?.getMap?.('meta'); // optional if you attach
+    const currentTime = yMeta?.get?.('time.current') ?? null;
 
     const render = () => {
       const keep = new Set<string>();
 
-      annotations.forEach((ev) => {
+      annotations.forEach((ev: any) => {
+        // Time filtering
+        if (!isVisibleAt(ev as any, currentTime)) return;
         keep.add(ev.id);
         let el = svg.querySelector<SVGElement>(`[id="${ev.id}"]`);
         if (!el) {
           const tag =
-            ev.type === "text" ? "text" : ev.type === "line" ? "line" : ev.type;
+            ev.type === "text" ? "text" :
+            ev.type === "line" ? "line" :
+            ev.type === "track" ? "g" :
+            ev.type === "timepin" ? "polygon" :
+            ev.type;
           el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-          el.id = ev.id;
-          el.dataset.anno = "1";
-          svg.appendChild(el);
+          el!.id = ev.id;
+          el!.dataset.anno = "1";
+          svg.appendChild(el!);
         }
         
         // Update pointer events based on current tool
         // Only make annotations clickable in cursor mode
         // In drawing modes, annotations should not block pointer events
-        el.style.pointerEvents = tool === "cursor" ? "all" : "none";
-        el.style.cursor = tool === "cursor" ? "pointer" : "default";
+        el!.style.pointerEvents = tool === "cursor" ? "all" : "none";
+        el!.style.cursor = tool === "cursor" ? "pointer" : "default";
 
         // style
-        if (ev.type !== "text") {
-          el.setAttribute("fill", "none");
-          el.setAttribute(
+        if (ev.type !== "text" && ev.type !== "track" && ev.type !== "timepin") {
+          el!.setAttribute("fill", "none");
+          el!.setAttribute(
             "stroke",
             selected.has(ev.id) ? "#ff0088" : "#00ff88",
           );
 
           // Use consistent stroke width for all shapes
-          el.setAttribute("stroke-width", "2");
+          el!.setAttribute("stroke-width", "2");
           if (ev.type === "rect" || ev.type === "line")
-            el.setAttribute("stroke-dasharray", "4 2");
+            el!.setAttribute("stroke-dasharray", "4 2");
         } else {
-          el.setAttribute("fill", "#00ff88");
+          el!.setAttribute("fill", "#00ff88");
           // Calculate font size that scales with map
           const baseSize = 14; // Base font size in pixels
           const creationZoom = (ev as any).zoom || 10; // Default to zoom 10 if not stored
@@ -102,7 +111,7 @@ export default function SvgLayer({
           // Scale based on zoom difference from creation time
           const zoomScale = Math.pow(2, currentZoom - creationZoom);
           const fontSize = baseSize * zoomScale;
-          el.setAttribute(
+          el!.setAttribute(
             "font-size",
             `${Math.max(1, Math.min(fontSize, 200))}`,
           );
@@ -112,27 +121,27 @@ export default function SvgLayer({
         if (ev.type === "rect") {
           const p1 = map.project([ev.west, ev.north]);
           const p2 = map.project([ev.east, ev.south]);
-          el.setAttribute("x", `${p1.x}`);
-          el.setAttribute("y", `${p1.y}`);
-          el.setAttribute("width", `${p2.x - p1.x}`);
-          el.setAttribute("height", `${p2.y - p1.y}`);
+          el!.setAttribute("x", `${p1.x}`);
+          el!.setAttribute("y", `${p1.y}`);
+          el!.setAttribute("width", `${p2.x - p1.x}`);
+          el!.setAttribute("height", `${p2.y - p1.y}`);
         } else if (ev.type === "circle") {
           const c = map.project([ev.lng, ev.lat]);
           const edge = map.project([ev.lng + ev.rLng, ev.lat + ev.rLat]);
           const r = Math.hypot(edge.x - c.x, edge.y - c.y);
-          el.setAttribute("cx", `${c.x}`);
-          el.setAttribute("cy", `${c.y}`);
-          el.setAttribute("r", `${r}`);
+          el!.setAttribute("cx", `${c.x}`);
+          el!.setAttribute("cy", `${c.y}`);
+          el!.setAttribute("r", `${r}`);
         } else if (ev.type === "line") {
           const p1 = map.project([ev.lng1, ev.lat1]);
           const p2 = map.project([ev.lng2, ev.lat2]);
-          el.setAttribute("x1", `${p1.x}`);
-          el.setAttribute("y1", `${p1.y}`);
-          el.setAttribute("x2", `${p2.x}`);
-          el.setAttribute("y2", `${p2.y}`);
+          el!.setAttribute("x1", `${p1.x}`);
+          el!.setAttribute("y1", `${p1.y}`);
+          el!.setAttribute("x2", `${p2.x}`);
+          el!.setAttribute("y2", `${p2.y}`);
 
           // Remove marker and create arrow head as a path
-          el.removeAttribute("marker-end");
+          el!.removeAttribute("marker-end");
 
           // Calculate arrow head
           const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
@@ -182,9 +191,48 @@ export default function SvgLayer({
           keep.add(`arrow-head-${ev.id}`);
         } else if (ev.type === "text") {
           const p = map.project([ev.lng, ev.lat]);
-          el.textContent = ev.content;
-          el.setAttribute("x", `${p.x}`);
-          el.setAttribute("y", `${p.y}`);
+          el!.textContent = ev.content;
+          el!.setAttribute("x", `${p.x}`);
+          el!.setAttribute("y", `${p.y}`);
+        } else if (ev.type === "timepin") {
+          // small diamond at its view center or map center if provided
+          const v = ev.view ?? { lng: map.getCenter().lng, lat: map.getCenter().lat };
+          const p = map.project([v.lng, v.lat]);
+          const s = 6; // px
+          const points = [
+            [p.x, p.y - s], [p.x + s, p.y], [p.x, p.y + s], [p.x - s, p.y]
+          ].map(([x,y]) => `${x},${y}`).join(' ');
+          const poly = el as unknown as SVGPolygonElement;
+          poly.setAttribute('points', points);
+          poly.setAttribute('fill', selected.has(ev.id) ? '#ff0088' : '#00ff88');
+          poly.setAttribute('stroke', 'none');
+        } else if (ev.type === "track") {
+          // draw faint path
+          const g = el as SVGGElement;
+          let path = g.querySelector('path');
+          let dot  = g.querySelector('circle');
+          if (!path) { path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); g.appendChild(path); }
+          if (!dot)  { dot  = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); g.appendChild(dot); }
+          const d = ev.points.map((pt: any, idx: number) => {
+            const p = map.project([pt.lng, pt.lat]);
+            return `${idx ? 'L' : 'M'} ${p.x} ${p.y}`;
+          }).join(' ');
+          path.setAttribute('d', d);
+          path.setAttribute('stroke', '#00ff88');
+          path.setAttribute('stroke-width', '1');
+          path.setAttribute('stroke-opacity', '0.4');
+          path.setAttribute('fill', 'none');
+          // moving dot
+          if (currentTime != null) {
+            const pos = interpolateTrack(ev, currentTime);
+            if (pos) {
+              const p = map.project([pos.lng, pos.lat]);
+              dot.setAttribute('cx', `${p.x}`);
+              dot.setAttribute('cy', `${p.y}`);
+              dot.setAttribute('r', '3');
+              dot.setAttribute('fill', selected.has(ev.id) ? '#ff0088' : '#00ff88');
+            }
+          }
         }
       });
 

@@ -25,10 +25,42 @@ export function useSelection(
         remove([...selected]);
         setSelected(new Set());
       }
+      // Group: Ctrl/Cmd + G
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g' && selected.size > 1) {
+        const id = crypto.randomUUID();
+        const children = [...selected];
+        // Store groups in a Y.Array('groups') alongside annotations
+        const yGroups = ydoc.getArray<any>('groups');
+        yGroups.push([{ id, name: 'Group', children }]);
+        // Treat group as one selection (optional): keep children selected for now
+        e.preventDefault();
+      }
+      // Ungroup: Ctrl/Cmd + Shift + G
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
+        const yGroups = ydoc.getArray<any>('groups');
+        const groups = yGroups.toArray();
+        const keep = groups.filter((g: any) => {
+          // if all children of a group are selected, remove that group
+          const allIn = g.children.every((c: string) => selected.has(c));
+          return !allIn;
+        });
+        yGroups.delete(0, yGroups.length);
+        yGroups.push(keep as any);
+        e.preventDefault();
+      }
+      // Assign time (Shift+Y): current timestamp to selected
+      if (e.shiftKey && e.key.toLowerCase() === 'y' && selected.size) {
+        const yArr = ydoc.getArray<any>('annotations');
+        const all = yArr.toArray();
+        const ts = Date.now();
+        const next = all.map((a: any) => selected.has(a.id) ? { ...a, time: ts } : a);
+        yArr.delete(0, yArr.length);
+        yArr.push(next as any);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selected, remove]);
+  }, [selected, remove, ydoc]);
 
   // Selection rectangle and annotation selection logic
   useEffect(() => {

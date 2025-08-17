@@ -3,7 +3,8 @@ import { encodeBase64, decodeBase64 } from 'tweetnacl-util';
 import { ID } from './identity';
 
 export function makeShareLink(boardId: string, capability: 'edit' | 'view' = 'edit'): string {
-  const baseUrl = `${window.location.origin}/b/${boardId}`;
+  const current = new URL(window.location.href);
+  const baseUrl = `${window.location.origin}/b/${boardId}${current.search}`; // preserve ?map=...
   
   const payload = JSON.stringify({
     boardId,

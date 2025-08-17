@@ -11,8 +11,9 @@ import { useSelection } from "../map/useSelection";
 import { useDraw } from "../map/useDraw";
 import SvgLayer from "../map/SvgLayer";
 import MapStats from "../map/MapStats";
+import Timebar from "../time/Timebar";
 
-export type Tool = "cursor" | "rect" | "circle" | "line" | "text";
+export type Tool = "cursor" | "rect" | "circle" | "line" | "text" | "time";
 
 interface MapCanvasProps {
   ydoc: Y.Doc;
@@ -27,6 +28,12 @@ function MapContent({ ydoc, provider }: MapCanvasProps) {
   const [selected] = useSelection(map, svgRef.current, tool, ydoc);
   useDraw(map, svgRef.current, tool, selected, ydoc, setTool);
 
+  // Expose ydoc to Map for time read by SvgLayer
+  useEffect(() => {
+    const m = (window as any).mapRef?.current;
+    if (m) (m as any)._ydoc = ydoc;
+  }, [ydoc]);
+
   // Handle keyboard shortcuts for tool switching
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -39,7 +46,8 @@ function MapContent({ ydoc, provider }: MapCanvasProps) {
         'r': 'rect',
         'c': 'circle',
         'a': 'line',
-        't': 'text'
+        't': 'text',
+        'y': 'time'
       };
       
       if (shortcuts[e.key.toLowerCase()]) {
@@ -58,6 +66,7 @@ function MapContent({ ydoc, provider }: MapCanvasProps) {
       <Toolbar tool={tool} setTool={setTool} />
       <MapStats ydoc={ydoc} />
       <EventLog ydoc={ydoc} />
+      <Timebar ydoc={ydoc} />
     </>
   );
 }

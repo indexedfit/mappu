@@ -7,6 +7,7 @@ import MapCanvas from "../components/MapCanvas";
 import { storeLastBoard, useBoards } from "./useBoards";
 import { BoardStore } from "./BoardStore";
 import { NetworkLink } from "./NetworkLink";
+import { WSRelayProvider } from "./WSRelayProvider";
 import { ID } from "../identity";
 
 const CURRENT_SCHEMA_VERSION = 1;
@@ -40,8 +41,34 @@ export default function BoardRouter() {
     const { doc, id: roomName } = BoardStore.open(boardId);
     const persistence = BoardStore.getPersistence(roomName);
 
-    // Always enable networking for now (simplest approach for debugging)
-    const provider = NetworkLink.attach(roomName, doc);
+    // Try WebSocket relay first if configured, fallback to PeerJS
+    let provider: NetworkProvider | null = null;
+    const relayUrl = import.meta.env.VITE_RELAY_URL as string | undefined;
+
+    if (relayUrl) {
+      try {
+        const wsProv = new WSRelayProvider(relayUrl, roomName, doc);
+        // small race window: if WS not OPEN in 2s, fallback
+        const t = setTimeout(() => {
+          // if no clients yet (heuristic), fallback
+          if (!wsProv) return;
+          console.log('[Board] WS timed out, falling back to PeerJS');
+          try { wsProv.destroy(); } catch {}
+          const p2p = NetworkLink.attach(roomName, doc);
+          setDocProv({ doc, provider: p2p, persistence, roomName });
+        }, 2000);
+        // If we get here, go with WS for now
+        provider = wsProv;
+        // clear fallback timer once doc changes (i.e., we got something)
+        const onFirstUpdate = () => { clearTimeout(t); doc.off('update', onFirstUpdate); };
+        doc.on('update', onFirstUpdate);
+      } catch (e) {
+        console.warn('[Board] WS provider failed, falling back', e);
+        provider = NetworkLink.attach(roomName, doc);
+      }
+    } else {
+      provider = NetworkLink.attach(roomName, doc);
+    }
 
     // Initialize schema and handle sharing data
     if (persistence) {

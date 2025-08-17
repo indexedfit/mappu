@@ -17,6 +17,27 @@ export function useDraw(
   useEffect(() => {
     if (!map || !svg) return;
     if (tool === 'cursor') return; // Selection logic is in useSelection
+    if (tool === 'time') {
+      // one-shot: click anywhere to add a time pin capturing camera
+      const onClick = (e: PointerEvent) => {
+        if (e.button !== 0) return;
+        const center = map.getCenter();
+        const id = crypto.randomUUID();
+        add({
+          id,
+          type: "timepin" as any,
+          ts: Date.now(),
+          view: {
+            lng: center.lng, lat: center.lat,
+            zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch()
+          }
+        } as any);
+        // optional: revert to cursor
+        onToolChange?.('cursor');
+      };
+      svg.addEventListener('pointerdown', onClick);
+      return () => { svg.removeEventListener('pointerdown', onClick); };
+    }
 
     let drawing = false;
     let startPoint: { x: number; y: number } | null = null;

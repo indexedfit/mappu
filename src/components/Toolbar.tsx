@@ -12,6 +12,7 @@ export default function Toolbar({ tool, setTool }: Props) {
     { tool: "circle", label: "◯", shortcut: "C", title: "Circle" },
     { tool: "line", label: "／", shortcut: "A", title: "Arrow" },
     { tool: "text", label: "T", shortcut: "T", title: "Text" },
+    { tool: "time", label: "🕒", shortcut: "Y", title: "Time pin" },
   ];
   return (
     <div className="absolute top-2 left-2 flex gap-1.5 z-20 bg-black/60 p-1 rounded-md">
