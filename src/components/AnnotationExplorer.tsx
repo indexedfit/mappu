@@ -1,3 +1,4 @@
+import React from 'react';
 import * as Y from 'yjs';
 import { useAnnotations } from '../hooks/useYAnnotations';
 import { useYGroups } from '../annotations/groups';
@@ -12,6 +13,7 @@ export default function AnnotationExplorer({ ydoc, selected, setSelected }: Prop
   const { annotations } = useAnnotations(ydoc);
   const { all, addGroup, removeGroup, updateGroup } = useYGroups(ydoc);
   const groups = all();
+  const [collapsed, setCollapsed] = React.useState(true); // Start minimized
 
   const groupedIds = new Set(groups.flatMap(g => g.children));
   const ungrouped = annotations.filter(a => !groupedIds.has(a.id));
@@ -33,13 +35,30 @@ export default function AnnotationExplorer({ ydoc, selected, setSelected }: Prop
   };
 
   return (
-    <div className="absolute top-2 left-2 translate-x-[-110%] sm:translate-x-0 z-40">
-      <div className="bg-black/70 backdrop-blur text-white text-xs w-64 rounded shadow-xl max-h-[60vh] overflow-y-auto p-2">
+    <div className="absolute top-24 right-2 z-20 pointer-events-none">
+      <div className={`bg-black/70 backdrop-blur text-white text-xs rounded shadow-xl transition-all pointer-events-auto ${collapsed ? 'w-8 h-8' : 'w-64 max-h-[60vh] overflow-y-auto p-2'}`}>
         <div className="flex items-center justify-between mb-1">
-          <div className="font-semibold opacity-80">Explorer</div>
-          <button onClick={() => addGroup({ id: crypto.randomUUID(), name: 'Group', children: [] })} className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20">+ Group</button>
+          <div className={`font-semibold opacity-80 ${collapsed ? 'hidden' : ''}`}>Explorer</div>
+          <button 
+            onClick={() => setCollapsed(!collapsed)} 
+            className={`rounded hover:bg-white/20 text-sm font-bold ${collapsed ? 'w-full h-full flex items-center justify-center' : 'px-2 py-0.5'}`}
+            title={collapsed ? 'Expand Explorer' : 'Collapse Explorer'}
+          >
+            {collapsed ? '+' : '−'}
+          </button>
+          {!collapsed && (
+            <button onClick={() => {
+              const id = crypto.randomUUID();
+              const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+              const name = `Group ${timestamp}`;
+              const selectionIds = [...selected];
+              addGroup({ id, name, children: selectionIds });
+            }} className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20">+ Group</button>
+          )}
         </div>
 
+        {!collapsed && (
+        <>
         {/* Groups */}
         {groups.map(g => (
           <div key={g.id} className="mb-2 border border-white/10 rounded">
@@ -93,6 +112,8 @@ export default function AnnotationExplorer({ ydoc, selected, setSelected }: Prop
             )}
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

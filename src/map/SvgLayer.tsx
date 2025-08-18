@@ -94,15 +94,17 @@ export default function SvgLayer({
         if (ev.type !== "text" && ev.type !== "track" && ev.type !== "timepin") {
           el!.setAttribute("fill", "none");
           const baseColor = (ev as any).color || "#00ff88";
-          el!.setAttribute("stroke", selected.has(ev.id) ? "#ff0088" : baseColor);
+          el!.setAttribute("stroke", baseColor);
 
-          // Use consistent stroke width for all shapes
-          el!.setAttribute("stroke-width", "2");
+          // Use thicker stroke for selected items
+          el!.setAttribute("stroke-width", selected.has(ev.id) ? "4" : "2");
           if (ev.type === "rect" || ev.type === "line")
             el!.setAttribute("stroke-dasharray", "4 2");
         } else {
           const baseColor = (ev as any).color || "#00ff88";
-          el!.setAttribute("fill", selected.has(ev.id) ? "#ff0088" : baseColor);
+          el!.setAttribute("fill", baseColor);
+          // Add opacity for selected text
+          el!.setAttribute("opacity", selected.has(ev.id) ? "1" : "0.8");
           // Calculate font size that scales with map
           const baseSize = 14; // Base font size in pixels
           const creationZoom = (ev as any).zoom || 10; // Default to zoom 10 if not stored
@@ -177,7 +179,7 @@ export default function SvgLayer({
             `M ${arrowLeft.x} ${arrowLeft.y} L ${arrowTip.x} ${arrowTip.y} L ${arrowRight.x} ${arrowRight.y} Z`,
           );
           const baseColor = (ev as any).color || "#00ff88";
-          arrowHead.setAttribute("fill", selected.has(ev.id) ? "#ff0088" : baseColor);
+          arrowHead.setAttribute("fill", baseColor);
           arrowHead.setAttribute("stroke", "none");
           
           // Update pointer events for arrow head too
@@ -202,7 +204,8 @@ export default function SvgLayer({
           const poly = el as unknown as SVGPolygonElement;
           poly.setAttribute('points', points);
           const baseColor = (ev as any).color || '#00ff88';
-          poly.setAttribute('fill', selected.has(ev.id) ? '#ff0088' : baseColor);
+          poly.setAttribute('fill', baseColor);
+          poly.setAttribute('opacity', selected.has(ev.id) ? '1' : '0.8');
           poly.setAttribute('stroke', 'none');
         } else if (ev.type === "track") {
           // draw faint path
@@ -229,7 +232,8 @@ export default function SvgLayer({
               dot.setAttribute('cx', `${p.x}`);
               dot.setAttribute('cy', `${p.y}`);
               dot.setAttribute('r', '3');
-              dot.setAttribute('fill', selected.has(ev.id) ? '#ff0088' : baseColor);
+              dot.setAttribute('fill', baseColor);
+              dot.setAttribute('opacity', selected.has(ev.id) ? '1' : '0.6');
             }
           }
         }

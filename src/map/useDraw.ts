@@ -10,7 +10,8 @@ export function useDraw(
   tool: Tool,
   _selected: Set<string>,
   ydoc: Y.Doc,
-  onToolChange?: (tool: Tool) => void
+  onToolChange?: (tool: Tool) => void,
+  setSelected?: (selected: Set<string>) => void
 ) {
   const { add } = useAnnotations(ydoc);
 
@@ -32,6 +33,8 @@ export function useDraw(
             zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch()
           }
         } as any);
+        // Auto-select the newly created annotation
+        setSelected?.(new Set([id]));
         // optional: revert to cursor
         onToolChange?.('cursor');
       };
@@ -124,6 +127,8 @@ export function useDraw(
               content: text,
               zoom: map.getZoom()
             });
+            // Auto-select the newly created annotation
+            setSelected?.(new Set([id]));
           }
           foreignObj.remove();
         };
@@ -228,6 +233,8 @@ export function useDraw(
           south: p2.lat,
           zoom: map.getZoom()
         });
+        // Auto-select the newly created annotation
+        setSelected?.(new Set([id]));
       } else if (tool === "circle") {
         const center = map.unproject([startPoint.x, startPoint.y]);
         const edge = map.unproject([point.x, point.y]);
@@ -241,6 +248,8 @@ export function useDraw(
           rLat: edge.lat - center.lat,
           zoom: map.getZoom()
         });
+        // Auto-select the newly created annotation
+        setSelected?.(new Set([id]));
       } else if (tool === "line") {
         const p1 = map.unproject([startPoint.x, startPoint.y]);
         const p2 = map.unproject([point.x, point.y]);
@@ -254,6 +263,8 @@ export function useDraw(
           lat2: p2.lat,
           zoom: map.getZoom()
         });
+        // Auto-select the newly created annotation
+        setSelected?.(new Set([id]));
       }
       
       currentElement.remove();
