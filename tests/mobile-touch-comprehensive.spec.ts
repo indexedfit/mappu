@@ -296,4 +296,67 @@ test.describe('Comprehensive Mobile Touch Tests', () => {
     
     console.log('SVG interference test:', svgTest);
   });
+
+  test('improved pinch sensitivity with small gestures', async ({ page }) => {
+    const initial = await page.evaluate(() => {
+      const map = (window as any).mapRef?.current;
+      return map?.getZoom();
+    });
+
+    // Test very small pinch gesture that should now work
+    await page.locator('.maplibregl-canvas').dispatchEvent('pointerdown', {
+      pointerType: 'touch',
+      clientX: 195,
+      clientY: 300,
+      pointerId: 1
+    });
+    
+    await page.locator('.maplibregl-canvas').dispatchEvent('pointerdown', {
+      pointerType: 'touch',
+      clientX: 205,
+      clientY: 300,
+      pointerId: 2
+    });
+    
+    await page.waitForTimeout(50);
+    
+    // Very small pinch movement
+    await page.locator('.maplibregl-canvas').dispatchEvent('pointermove', {
+      pointerType: 'touch',
+      clientX: 190,
+      clientY: 300,
+      pointerId: 1
+    });
+    
+    await page.locator('.maplibregl-canvas').dispatchEvent('pointermove', {
+      pointerType: 'touch',
+      clientX: 210,
+      clientY: 300,
+      pointerId: 2
+    });
+    
+    await page.waitForTimeout(100);
+    
+    await page.locator('.maplibregl-canvas').dispatchEvent('pointerup', {
+      pointerType: 'touch',
+      pointerId: 1
+    });
+    
+    await page.locator('.maplibregl-canvas').dispatchEvent('pointerup', {
+      pointerType: 'touch',
+      pointerId: 2
+    });
+    
+    await page.waitForTimeout(200);
+    
+    const final = await page.evaluate(() => {
+      const map = (window as any).mapRef?.current;
+      return map?.getZoom();
+    });
+    
+    console.log(`Small pinch test: ${initial} -> ${final}`);
+    
+    // With improved sensitivity, this small gesture should now work
+    expect(final).toBeGreaterThan(initial);
+  });
 });

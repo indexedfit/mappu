@@ -3,133 +3,191 @@ import maplibregl from "maplibre-gl";
 
 const PAN_SENSITIVITY = 1.25;
 const WHEEL_ZOOM_DIVISOR = 80;
-const PINCH_ZOOM_THRESHOLD = 0.03;
+const ZOOM_SENSITIVITY = 0.008; // More sensitive
+const MIN_PINCH_DISTANCE = 15; // Lower threshold for small gestures
+
+interface TouchState {
+  touches: Map<number, PointerEvent>;
+  lastCenter?: { x: number; y: number };
+  lastDistance?: number;
+  lastSingle?: PointerEvent;
+}
 
 export function useGestures(
   map: maplibregl.Map | undefined,
   opts = { enableCustom: true },
 ) {
+  // Wheel handler for desktop
   React.useEffect(() => {
     if (!map || !opts.enableCustom) return;
+    const container = map.getCanvasContainer();
 
-    const c = map.getCanvasContainer();
-
-    // Custom wheel handler for pan/zoom
     const handleWheel = (e: WheelEvent) => {
-      const pinch = e.ctrlKey || e.metaKey;
-      if (pinch) {
-        const dz = -e.deltaY / WHEEL_ZOOM_DIVISOR;
-        map.zoomTo(map.getZoom() + dz, {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom with ctrl/cmd + wheel
+        const delta = -e.deltaY / WHEEL_ZOOM_DIVISOR;
+        map.zoomTo(map.getZoom() + delta, {
           around: map.unproject([e.clientX, e.clientY]),
           animate: false,
         });
       } else {
+        // Pan with wheel
         map.panBy([e.deltaX * PAN_SENSITIVITY, e.deltaY * PAN_SENSITIVITY], {
           animate: false,
         });
       }
-      e.preventDefault();
     };
 
-    c.addEventListener("wheel", handleWheel, { passive: false });
-    return () => c.removeEventListener("wheel", handleWheel);
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
   }, [map, opts.enableCustom]);
 
-  // Touch two-finger handler
+  // Touch handler for mobile
   React.useEffect(() => {
     if (!map || !opts.enableCustom) return;
-
     const container = map.getCanvasContainer();
-    const touches = new Map<number, PointerEvent>();
-    let prevCenter: { x: number; y: number } | undefined;
-    let prevDist: number | undefined;
-    let prevSingle: PointerEvent | undefined;
+    
+    const state: TouchState = {
+      touches: new Map(),
+    };
 
-    const mid = (a: PointerEvent, b: PointerEvent) => ({
-      x: (a.clientX + b.clientX) / 2,
-      y: (a.clientY + b.clientY) / 2,
+    const getCenter = (t1: PointerEvent, t2: PointerEvent) => ({
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2,
     });
-    const dist = (a: PointerEvent, b: PointerEvent) =>
-      Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 
-    const down = (e: PointerEvent) => {
+    const getDistance = (t1: PointerEvent, t2: PointerEvent) => 
+      Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+    const handlePointerDown = (e: PointerEvent) => {
       if (e.pointerType !== "touch") return;
-      touches.set(e.pointerId, e);
+      
+      // CRITICAL: Always prevent default to stop browser zoom
+      e.preventDefault();
+      e.stopPropagation();
+      
+      state.touches.set(e.pointerId, e);
+      
       try {
         container.setPointerCapture(e.pointerId);
-      } catch (err) {
-        // Ignore capture errors in tests
+      } catch {
+        // Ignore capture errors
       }
-      if (touches.size === 1) {
-        prevSingle = e;
-      } else if (touches.size === 2) {
-        const [p1, p2] = [...touches.values()];
-        prevCenter = mid(p1, p2);
-        prevDist = dist(p1, p2);
-      }
-      e.preventDefault();
-    };
 
-    const move = (e: PointerEvent) => {
-      if (!touches.has(e.pointerId)) return;
-      touches.set(e.pointerId, e);
-      if (touches.size === 1 && prevSingle) {
-        // Single finger pan for mobile (works in all modes)
-        map.panBy(
-          [prevSingle.clientX - e.clientX, prevSingle.clientY - e.clientY],
-          {
-            animate: false,
-          },
-        );
-        prevSingle = e;
-      } else if (touches.size === 2 && prevCenter && prevDist) {
-        const [p1, p2] = [...touches.values()];
-        const center = mid(p1, p2);
-        const d = dist(p1, p2);
-        // Pan with two fingers
-        map.panBy([prevCenter.x - center.x, prevCenter.y - center.y], {
-          animate: false,
-        });
-        prevCenter = center;
-        // Pinch zoom
-        const scale = d / prevDist;
-        if (Math.abs(scale - 1) > PINCH_ZOOM_THRESHOLD) {
-          map.zoomTo(map.getZoom() + Math.log2(scale), {
-            around: map.unproject([center.x, center.y]),
-            animate: false,
-          });
-          prevDist = d;
+      if (state.touches.size === 1) {
+        // Single finger - initialize pan
+        state.lastSingle = e;
+        state.lastCenter = undefined;
+        state.lastDistance = undefined;
+      } else if (state.touches.size === 2) {
+        // Two fingers - initialize pinch
+        const [t1, t2] = Array.from(state.touches.values());
+        const distance = getDistance(t1, t2);
+        
+        if (distance >= MIN_PINCH_DISTANCE) {
+          state.lastCenter = getCenter(t1, t2);
+          state.lastDistance = distance;
+          state.lastSingle = undefined;
         }
       }
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!state.touches.has(e.pointerId)) return;
+      
+      // CRITICAL: Always prevent default
       e.preventDefault();
+      e.stopPropagation();
+      
+      state.touches.set(e.pointerId, e);
+
+      if (state.touches.size === 1 && state.lastSingle) {
+        // Single finger pan
+        const deltaX = state.lastSingle.clientX - e.clientX;
+        const deltaY = state.lastSingle.clientY - e.clientY;
+        
+        map.panBy([deltaX, deltaY], { animate: false });
+        state.lastSingle = e;
+        
+      } else if (state.touches.size === 2 && state.lastCenter && state.lastDistance) {
+        // Two finger pinch/pan
+        const [t1, t2] = Array.from(state.touches.values());
+        const center = getCenter(t1, t2);
+        const distance = getDistance(t1, t2);
+        
+        if (distance >= MIN_PINCH_DISTANCE) {
+          // Pan based on center movement
+          const panDeltaX = state.lastCenter.x - center.x;
+          const panDeltaY = state.lastCenter.y - center.y;
+          
+          if (Math.abs(panDeltaX) > 1 || Math.abs(panDeltaY) > 1) {
+            map.panBy([panDeltaX, panDeltaY], { animate: false });
+          }
+          
+          // Zoom based on distance change
+          const scale = distance / state.lastDistance;
+          const zoomDelta = Math.log2(scale);
+          
+          if (Math.abs(zoomDelta) > ZOOM_SENSITIVITY) {
+            map.zoomTo(map.getZoom() + zoomDelta, {
+              around: map.unproject([center.x, center.y]),
+              animate: false,
+            });
+            state.lastDistance = distance;
+          }
+          
+          state.lastCenter = center;
+        }
+      }
     };
 
-    const upLeave = (e: PointerEvent) => {
-      touches.delete(e.pointerId);
-      if (touches.size === 0) {
-        prevSingle = undefined;
-      } else if (touches.size === 1) {
-        // Reset to single touch mode
-        const [remaining] = [...touches.values()];
-        prevSingle = remaining;
-        prevCenter = prevDist = undefined;
-      }
-      if (touches.size < 2) {
-        prevCenter = prevDist = undefined;
+    const handlePointerUp = (e: PointerEvent) => {
+      // CRITICAL: Always prevent default
+      e.preventDefault();
+      e.stopPropagation();
+      
+      state.touches.delete(e.pointerId);
+
+      if (state.touches.size === 0) {
+        // No touches - reset all
+        state.lastSingle = undefined;
+        state.lastCenter = undefined;
+        state.lastDistance = undefined;
+      } else if (state.touches.size === 1) {
+        // Back to single finger - reset for pan
+        const remaining = Array.from(state.touches.values())[0];
+        state.lastSingle = remaining;
+        state.lastCenter = undefined;
+        state.lastDistance = undefined;
+      } else if (state.touches.size === 2) {
+        // Still two fingers - reset pinch state
+        const [t1, t2] = Array.from(state.touches.values());
+        const distance = getDistance(t1, t2);
+        
+        if (distance >= MIN_PINCH_DISTANCE) {
+          state.lastCenter = getCenter(t1, t2);
+          state.lastDistance = distance;
+          state.lastSingle = undefined;
+        }
       }
     };
 
-    container.addEventListener("pointerdown", down, { passive: false });
-    container.addEventListener("pointermove", move, { passive: false });
-    ["pointerup", "pointercancel", "pointerleave"].forEach((ev) =>
-      container.addEventListener(ev, upLeave as any),
-    );
+    // Add all touch event listeners with passive: false
+    container.addEventListener("pointerdown", handlePointerDown, { passive: false });
+    container.addEventListener("pointermove", handlePointerMove, { passive: false });
+    container.addEventListener("pointerup", handlePointerUp, { passive: false });
+    container.addEventListener("pointercancel", handlePointerUp, { passive: false });
+    container.addEventListener("pointerleave", handlePointerUp, { passive: false });
+
     return () => {
-      container.removeEventListener("pointerdown", down);
-      container.removeEventListener("pointermove", move);
-      ["pointerup", "pointercancel", "pointerleave"].forEach((ev) =>
-        container.removeEventListener(ev, upLeave as any),
-      );
+      container.removeEventListener("pointerdown", handlePointerDown);
+      container.removeEventListener("pointermove", handlePointerMove);
+      container.removeEventListener("pointerup", handlePointerUp);
+      container.removeEventListener("pointercancel", handlePointerUp);
+      container.removeEventListener("pointerleave", handlePointerUp);
     };
   }, [map, opts.enableCustom]);
 }
