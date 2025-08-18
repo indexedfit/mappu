@@ -1,15 +1,29 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useBoards } from './useBoards';
+import React from 'react';
 
 export default function BoardMenu() {
   const { boards, create } = useBoards();
   const navigate = useNavigate();
   const { boardId } = useParams<{ boardId?: string }>();
   const [open, setOpen] = useState(false);
+  const boxRef = React.useRef<HTMLDivElement>(null);
   
   const currentBoardId = boardId;
   const currentBoard = boards.find(b => b.id === currentBoardId);
+
+  React.useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!open) return;
+      const t = e.target as Node;
+      if (boxRef.current && !boxRef.current.contains(t)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
 
   const newBoard = () => {
     const name = prompt('Name this board:', 'My Board');
@@ -25,7 +39,7 @@ export default function BoardMenu() {
   };
 
   return (
-    <div className="absolute top-2 right-2 z-40">
+    <div ref={boxRef} className="absolute top-2 right-2 z-40">
       <button 
         className="bg-black/60 px-3 py-1 text-white rounded hover:bg-black/70 transition-colors"
         onClick={() => setOpen(o => !o)}

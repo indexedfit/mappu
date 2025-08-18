@@ -50,6 +50,18 @@ export function useGestures(
     if (!map || !opts.enableCustom) return;
     const container = map.getCanvasContainer();
     
+    // iOS Safari still fires gesture*; make sure page never zooms
+    const cancelGesture = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    // @ts-ignore
+    container.addEventListener('gesturestart', cancelGesture, { passive: false });
+    // @ts-ignore
+    container.addEventListener('gesturechange', cancelGesture, { passive: false });
+    // @ts-ignore
+    container.addEventListener('gestureend', cancelGesture, { passive: false });
+
     const state: TouchState = {
       touches: new Map(),
     };
@@ -183,6 +195,12 @@ export function useGestures(
     container.addEventListener("pointerleave", handlePointerUp, { passive: false });
 
     return () => {
+      // @ts-ignore
+      container.removeEventListener('gesturestart', cancelGesture);
+      // @ts-ignore
+      container.removeEventListener('gesturechange', cancelGesture);
+      // @ts-ignore
+      container.removeEventListener('gestureend', cancelGesture);
       container.removeEventListener("pointerdown", handlePointerDown);
       container.removeEventListener("pointermove", handlePointerMove);
       container.removeEventListener("pointerup", handlePointerUp);

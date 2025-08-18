@@ -67,11 +67,43 @@ export function useAnnotations(ydoc: Y.Doc) {
     ]);
   };
 
+  const update = (ids: string[], patch: Partial<Annotation> | ((a: any) => any)) => {
+    const all = yAnnotations.toArray() as any[];
+    const next = all.map((a) =>
+      ids.includes(a.id)
+        ? (typeof patch === 'function' ? (patch as any)(a) : { ...a, ...patch })
+        : a
+    );
+    setAnnotations(next as any);
+    yLog.push([{ id: crypto.randomUUID(), ts: Date.now(), user: 'me', msg: `updated ${ids.length} annotation(s)` }]);
+  };
+
+  const shiftTime = (ids: string[], deltaMs: number) => {
+    const all = yAnnotations.toArray() as any[];
+    const next = all.map((a: any) => {
+      if (!ids.includes(a.id)) return a;
+      const b = { ...a };
+      if (typeof b.time === 'number') b.time += deltaMs;
+      if (typeof b.timeStart === 'number') b.timeStart += deltaMs;
+      if (typeof b.timeEnd === 'number') b.timeEnd += deltaMs;
+      if (b.type === 'track' && Array.isArray(b.points)) {
+        b.points = b.points.map((p: any) => ({ ...p, ts: p.ts + deltaMs }));
+      }
+      if (b.type === 'timepin' && typeof b.ts === 'number') b.ts += deltaMs;
+      return b;
+    });
+    setAnnotations(next as any);
+    const secs = Math.round(deltaMs / 1000);
+    yLog.push([{ id: crypto.randomUUID(), ts: Date.now(), user: 'me', msg: `shifted ${ids.length} annotation(s) by ${secs}s` }]);
+  };
+
   return {
     annotations,
     add,
     remove,
     log: yLog.toArray() as LogEntry[],
     addChat,
+    update,
+    shiftTime,
   };
 }

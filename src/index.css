@@ -9,6 +9,9 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  /* Prevent page scrolling/zoom bounces */
+  overscroll-behavior: none;
+  touch-action: none; /* full-screen app; all gestures are handled by our map */
 }
 
 /* Ensure maplibre container fills parent */
@@ -18,5 +21,14 @@ html, body, #root {
   left: 0;
   width: 100% !important;
   height: 100% !important;
+  touch-action: none !important;
+}
+
+.maplibregl-canvas {
+  touch-action: none !important; /* required for iOS to honor preventDefault */
+}
+
+svg[data-overlay] {
+  touch-action: none !important;
 }
 

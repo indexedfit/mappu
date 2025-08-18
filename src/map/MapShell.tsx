@@ -3,6 +3,7 @@ import type { PropsWithChildren } from "react";
 import maplibregl from "maplibre-gl";
 import { MapCtx } from "./MapContext";
 import { useGestures } from "./useGestures";
+import { usePageZoomGuard } from "./usePageZoomGuard";
 
 // Initialize debug flags
 if (typeof window !== "undefined" && !(window as any).debugFlags) {
@@ -12,6 +13,9 @@ if (typeof window !== "undefined" && !(window as any).debugFlags) {
 export default function MapShell({ children }: PropsWithChildren) {
   const el = React.useRef<HTMLDivElement>(null);
   const [map, setMap] = React.useState<maplibregl.Map>();
+
+  // Guard against browser/page zoom anywhere inside our map root
+  usePageZoomGuard(el.current);
 
   /* mount once ---------------------------------------------------------- */
   React.useEffect(() => {

@@ -15,6 +15,8 @@ export const persistence = throwDeprecatedError as any;
 export interface AnnotationBase {
   id: string;
   type: "rect" | "circle" | "line" | "text";
+  /** Optional UI color for stroke/fill; selection state still overrides to #ff0088 */
+  color?: string;
 }
 export interface RectAnnotation extends AnnotationBase {
   type: "rect";

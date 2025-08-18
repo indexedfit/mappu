@@ -12,6 +12,8 @@ import { useDraw } from "../map/useDraw";
 import SvgLayer from "../map/SvgLayer";
 import MapStats from "../map/MapStats";
 import Timebar from "../time/Timebar";
+import SelectionActions from "./SelectionActions";
+import AnnotationExplorer from "./AnnotationExplorer";
 
 export type Tool = "cursor" | "rect" | "circle" | "line" | "text" | "time";
 
@@ -25,7 +27,7 @@ function MapContent({ ydoc, provider }: MapCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [tool, setTool] = useState<Tool>("cursor");
   const map = useMap();
-  const [selected] = useSelection(map, svgRef.current, tool, ydoc);
+  const [selected, setSelected] = useSelection(map, svgRef.current, tool, ydoc);
   useDraw(map, svgRef.current, tool, selected, ydoc, setTool);
 
   // Expose ydoc to Map for time read by SvgLayer
@@ -64,6 +66,8 @@ function MapContent({ ydoc, provider }: MapCanvasProps) {
       <SvgLayer svgRef={svgRef} annotations={annotations} selected={selected} provider={provider} tool={tool} />
       <ShareButton ydoc={ydoc} provider={provider} />
       <Toolbar tool={tool} setTool={setTool} />
+      <AnnotationExplorer ydoc={ydoc} selected={selected} setSelected={setSelected} />
+      <SelectionActions ydoc={ydoc} selected={selected} />
       <MapStats ydoc={ydoc} />
       <EventLog ydoc={ydoc} />
       <Timebar ydoc={ydoc} />
