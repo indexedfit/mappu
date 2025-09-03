@@ -14,6 +14,7 @@ import MapStats from "../map/MapStats";
 import Timebar from "../time/Timebar";
 import SelectionActions from "./SelectionActions";
 import AnnotationExplorer from "./AnnotationExplorer";
+import StreetToggle from "./StreetToggle";
 
 export type Tool = "cursor" | "rect" | "circle" | "line" | "text" | "time";
 
@@ -69,6 +70,7 @@ function MapContent({ ydoc, provider }: MapCanvasProps) {
       <AnnotationExplorer ydoc={ydoc} selected={selected} setSelected={setSelected} />
       <SelectionActions ydoc={ydoc} selected={selected} />
       <MapStats ydoc={ydoc} />
+      <StreetToggle />
       <EventLog ydoc={ydoc} />
       <Timebar ydoc={ydoc} />
     </>
