@@ -79,7 +79,7 @@ function MapContent({ ydoc, provider }: MapCanvasProps) {
 
 export default function MapCanvas({ ydoc, provider }: MapCanvasProps) {
   return (
-    <MapShell>
+    <MapShell ydoc={ydoc}>
       <MapContent ydoc={ydoc} provider={provider} />
     </MapShell>
   );
