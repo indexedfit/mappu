@@ -337,12 +337,19 @@ export default function SvgLayer({
   }, [provider, svgRef, map]);
 
   // Handle wheel events on SVG overlay
+
+  // Handle wheel events on SVG overlay
   useEffect(() => {
     if (!map || !svgRef.current) return;
 
     const svg = svgRef.current;
 
     const handleWheel = (e: WheelEvent) => {
+      // CRITICAL: Always prevent browser zoom first
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
       const isPinch = e.ctrlKey || e.metaKey;
       if (isPinch) {
         const dz = -e.deltaY / 80;
@@ -355,7 +362,6 @@ export default function SvgLayer({
           animate: false,
         });
       }
-      e.preventDefault();
     };
 
     svg.addEventListener("wheel", handleWheel, { passive: false });

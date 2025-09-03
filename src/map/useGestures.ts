@@ -23,8 +23,10 @@ export function useGestures(
     const container = map.getCanvasContainer();
 
     const handleWheel = (e: WheelEvent) => {
+      // CRITICAL: Prevent browser zoom immediately
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
       
       if (e.ctrlKey || e.metaKey) {
         // Zoom with ctrl/cmd + wheel
