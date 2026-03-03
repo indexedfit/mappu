@@ -17,7 +17,7 @@ export interface RenderOptions {
   height?: number;           // output height (default 1920). Common: 1920=9:16, 1350=4:5, 1080=1:1
   fps?: number;              // default 30
   audioPath?: string;        // optional background audio
-  fontPath?: string;         // optional font file for text overlays
+  audioStartSec?: number;    // start offset into the audio file (default 0)
 }
 
 export interface RenderResult {
@@ -26,13 +26,104 @@ export interface RenderResult {
   slides: number;
 }
 
+// --- Text wrapping ---
+
+/** Escape text for ffmpeg drawtext filter */
+function escapeDrawtext(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\\\\\")
+    .replace(/'/g, "\u2019")
+    .replace(/:/g, "\\:")
+    .replace(/%/g, "%%")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
+}
+
+/**
+ * Word-wrap text to fit within a given pixel width.
+ * Estimates ~0.55 chars-per-pixel at the given fontsize for a bold sans-serif.
+ * Returns array of lines.
+ */
+function wrapText(text: string, frameWidth: number, fontSize: number, padding = 80): string[] {
+  const usableWidth = frameWidth - padding * 2;
+  // Approximate: each char at fontsize N is roughly N*0.55 pixels wide for bold sans
+  const charWidth = fontSize * 0.55;
+  const maxChars = Math.floor(usableWidth / charWidth);
+
+  if (text.length <= maxChars) return [text];
+
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (test.length <= maxChars) {
+      current = test;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+
+  return lines;
+}
+
+/**
+ * Build ffmpeg drawtext filter chain for wrapped, centered text.
+ * Each line is rendered separately, all centered vertically as a block.
+ */
+function buildTextFilter(
+  text: string,
+  frameWidth: number,
+  frameHeight: number,
+  inputLabel: string,
+  outputLabel: string,
+): string {
+  const fontSize = 60;
+  const lineHeight = Math.round(fontSize * 1.4);
+  const lines = wrapText(text, frameWidth, fontSize);
+
+  if (!lines.length) return `;${inputLabel}null${outputLabel}`;
+
+  // Total text block height
+  const blockHeight = lines.length * lineHeight;
+  // Start Y so the block is centered vertically
+  const startY = Math.round((frameHeight - blockHeight) / 2);
+
+  let prev = inputLabel;
+  const filters: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const escaped = escapeDrawtext(lines[i]);
+    const y = startY + i * lineHeight;
+    const next = i === lines.length - 1 ? outputLabel : `[t${i}]`;
+
+    filters.push(
+      `;${prev}drawtext=text='${escaped}'` +
+      `:fontsize=${fontSize}` +
+      `:fontcolor=white` +
+      `:borderw=4:bordercolor=black@0.8` +
+      `:shadowcolor=black@0.6:shadowx=2:shadowy=2` +
+      `:x=(w-text_w)/2` +
+      `:y=${y}` +
+      `:font=Montserrat Bold` +
+      `${next}`,
+    );
+
+    prev = next;
+  }
+
+  return filters.join("");
+}
+
 /**
  * Render a slideshow video from images + optional text overlays.
  * Uses ffmpeg:
  *   - Scales/pads each image to fit output dimensions
- *   - Adds crossfade transitions between slides
- *   - Burns text overlays at the bottom
- *   - Optionally mixes in background audio
+ *   - Word-wraps and centers text overlays
+ *   - Optionally mixes in background audio (with start offset)
  */
 export async function renderSlideshow(opts: RenderOptions): Promise<RenderResult> {
   const {
@@ -42,6 +133,7 @@ export async function renderSlideshow(opts: RenderOptions): Promise<RenderResult
     height = 1920,
     fps = 30,
     audioPath,
+    audioStartSec = 0,
   } = opts;
 
   if (!slides.length) throw new Error("No slides to render");
@@ -51,15 +143,10 @@ export async function renderSlideshow(opts: RenderOptions): Promise<RenderResult
   const outputPath = join(outputDir, `${outputName}.mp4`);
 
   // Calculate per-slide duration
-  const totalDuration = opts.totalDurationSec || slides.length * 3;
-  const perSlide = slides.map((s) => s.durationSec || totalDuration / slides.length);
-  const transitionDur = 0.5; // crossfade duration between slides
+  const perSlide = slides.map((s) => s.durationSec || 3);
+  const actualTotal = perSlide.reduce((a, b) => a + b, 0);
 
-  console.log(`  [render] ${slides.length} slides, ${totalDuration}s total, ${width}x${height}`);
-
-  // Strategy: create a concat file with each image as a "video" of N seconds,
-  // then apply crossfade transitions and text overlays.
-  // For simplicity and reliability, we use the concat demuxer approach.
+  console.log(`  [render] ${slides.length} slides, ${actualTotal}s total, ${width}x${height}`);
 
   // Step 1: Create individual slide videos with text overlays
   const slideVideos: string[] = [];
@@ -71,21 +158,11 @@ export async function renderSlideshow(opts: RenderOptions): Promise<RenderResult
     const dur = perSlide[i];
     const slidePath = join(tempDir, `slide_${String(i).padStart(3, "0")}.mp4`);
 
-    // Build ffmpeg filter: scale+pad image to fit, optionally add text
+    // Build ffmpeg filter: scale+pad image to fit
     let filter = `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[base]`;
 
     if (slide.text) {
-      // Escape special chars for ffmpeg drawtext
-      const escaped = slide.text
-        .replace(/\\/g, "\\\\\\\\")
-        .replace(/'/g, "\u2019")
-        .replace(/:/g, "\\:")
-        .replace(/%/g, "%%");
-
-      // TikTok-style: bold sans-serif, centered, white with black shadow
-      // Montserrat Bold is commonly available and closest to TikTok's Classic font
-      // Text centered both horizontally and vertically
-      filter += `;[base]drawtext=text='${escaped}':fontsize=64:fontcolor=white:borderw=4:bordercolor=black@0.8:shadowcolor=black@0.6:shadowx=3:shadowy=3:x=(w-text_w)/2:y=(h-text_h)/2:font=Montserrat Bold[out]`;
+      filter += buildTextFilter(slide.text, width, height, "[base]", "[out]");
     } else {
       filter += `;[base]null[out]`;
     }
@@ -96,25 +173,20 @@ export async function renderSlideshow(opts: RenderOptions): Promise<RenderResult
     console.log(`  [render] slide ${i + 1}/${slides.length} rendered (${dur.toFixed(1)}s)`);
   }
 
-  // Step 2: If only one slide, just copy it
-  if (slideVideos.length === 1) {
-    if (audioPath && existsSync(audioPath)) {
-      await $`ffmpeg -i ${slideVideos[0]} -i ${audioPath} -c:v copy -c:a aac -shortest -y ${outputPath} -loglevel warning`.quiet();
-    } else {
-      await $`cp ${slideVideos[0]} ${outputPath}`.quiet();
-    }
-  } else {
-    // Step 3: Concatenate with crossfade transitions using xfade filter
-    // For many slides, use concat demuxer (simpler, more reliable)
-    const concatFile = join(tempDir, "concat.txt");
-    const lines = slideVideos.map((p) => `file '${p}'`).join("\n");
-    await Bun.write(concatFile, lines);
+  // Step 2: Concatenate slides
+  const concatFile = join(tempDir, "concat.txt");
+  const lines = slideVideos.map((p) => `file '${p}'`).join("\n");
+  await Bun.write(concatFile, lines);
 
-    if (audioPath && existsSync(audioPath)) {
-      await $`ffmpeg -f concat -safe 0 -i ${concatFile} -i ${audioPath} -c:v libx264 -c:a aac -pix_fmt yuv420p -shortest -y ${outputPath} -loglevel warning`.quiet();
-    } else {
-      await $`ffmpeg -f concat -safe 0 -i ${concatFile} -c:v libx264 -pix_fmt yuv420p -y ${outputPath} -loglevel warning`.quiet();
-    }
+  // Step 3: If audio, extract the needed segment and mix in
+  if (audioPath && existsSync(audioPath)) {
+    // Extract audio segment: start at audioStartSec, duration = video length
+    const audioSegment = join(tempDir, "audio_segment.mp3");
+    await $`ffmpeg -i ${audioPath} -ss ${audioStartSec} -t ${actualTotal} -c:a libmp3lame -q:a 2 -y ${audioSegment} -loglevel warning`.quiet();
+
+    await $`ffmpeg -f concat -safe 0 -i ${concatFile} -i ${audioSegment} -c:v libx264 -c:a aac -pix_fmt yuv420p -shortest -y ${outputPath} -loglevel warning`.quiet();
+  } else {
+    await $`ffmpeg -f concat -safe 0 -i ${concatFile} -c:v libx264 -pix_fmt yuv420p -y ${outputPath} -loglevel warning`.quiet();
   }
 
   // Cleanup temp
@@ -122,13 +194,13 @@ export async function renderSlideshow(opts: RenderOptions): Promise<RenderResult
 
   // Get actual duration
   const probe = await $`ffprobe -v error -show_entries format=duration -of csv=p=0 ${outputPath}`.text();
-  const actualDuration = parseFloat(probe.trim()) || totalDuration;
+  const finalDuration = parseFloat(probe.trim()) || actualTotal;
 
-  console.log(`  [render] output: ${outputPath} (${actualDuration.toFixed(1)}s)`);
+  console.log(`  [render] output: ${outputPath} (${finalDuration.toFixed(1)}s)`);
 
   return {
     videoPath: outputPath,
-    durationSec: actualDuration,
+    durationSec: finalDuration,
     slides: slides.length,
   };
 }

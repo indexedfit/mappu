@@ -29,27 +29,10 @@ interface SearchDoc {
 }
 
 /**
- * Search Internet Archive for content matching a query.
- * Free, no auth needed. Returns items with download URLs.
+ * Run a single search against archive.org advancedsearch API.
  */
-export async function searchArchive(
-  query: string,
-  opts: {
-    mediatype?: "movies" | "image" | "audio" | "texts";
-    collection?: string;
-    maxResults?: number;
-    download?: boolean; // download thumbnails/files to local
-  } = {},
-): Promise<ArchiveResult[]> {
-  const { mediatype, collection, maxResults = 12, download = true } = opts;
-
-  // Build Solr query
-  const parts = [query];
-  if (mediatype) parts.push(`mediatype:${mediatype}`);
-  if (collection) parts.push(`collection:${collection}`);
-  const q = parts.join(" ");
-
-  console.log(`  [archive] searching: "${q}" (max ${maxResults})`);
+async function runSearch(q: string, maxResults: number): Promise<SearchDoc[]> {
+  console.log(`  [archive] query: "${q}"`);
 
   const url = new URL(IA_SEARCH);
   url.searchParams.set("q", q);
@@ -62,11 +45,62 @@ export async function searchArchive(
   }
 
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`Archive search failed: ${res.status}`);
+  if (!res.ok) return [];
 
   const json = (await res.json()) as { response: { numFound: number; docs: SearchDoc[] } };
-  const docs = json.response.docs;
-  console.log(`  [archive] found ${json.response.numFound} total, returning ${docs.length}`);
+  console.log(`  [archive] → ${json.response.numFound} total, got ${json.response.docs.length}`);
+  return json.response.docs;
+}
+
+/**
+ * Search Internet Archive for content matching a query.
+ * Free, no auth needed. Returns items with download URLs.
+ * Tries the exact query first, then progressively simpler fallbacks.
+ */
+export async function searchArchive(
+  query: string,
+  opts: {
+    mediatype?: "movies" | "image" | "audio" | "texts";
+    collection?: string;
+    maxResults?: number;
+    download?: boolean; // download thumbnails/files to local
+  } = {},
+): Promise<ArchiveResult[]> {
+  const { mediatype, collection, maxResults = 12, download = true } = opts;
+
+  console.log(`  [archive] searching: "${query}" (max ${maxResults})`);
+
+  // Build query variants — try exact first, then progressively simpler
+  const mediaFilter = mediatype ? ` mediatype:${mediatype}` : "";
+  const collFilter = collection ? ` collection:${collection}` : "";
+
+  const queries = [
+    // Exact query with filters
+    `${query}${mediaFilter}${collFilter}`,
+    // Without collection filter
+    collFilter ? `${query}${mediaFilter}` : null,
+    // Individual words OR'd (broader match)
+    query.split(/\s+/).length > 2
+      ? `(${query.split(/\s+/).slice(0, 3).join(" OR ")})${mediaFilter}`
+      : null,
+    // Without mediatype filter (any media)
+    mediaFilter ? `${query}` : null,
+  ].filter(Boolean) as string[];
+
+  let docs: SearchDoc[] = [];
+  for (const q of queries) {
+    docs = await runSearch(q, maxResults);
+    if (docs.length >= 3) break;
+    // Accumulate partial results
+    if (docs.length > 0) {
+      const more = await runSearch(queries[queries.indexOf(q) + 1] || q, maxResults - docs.length);
+      const seen = new Set(docs.map((d) => d.identifier));
+      docs.push(...more.filter((d) => !seen.has(d.identifier)));
+      if (docs.length >= 3) break;
+    }
+  }
+
+  console.log(`  [archive] final: ${docs.length} results`);
 
   // Build results with thumbnail + download URLs
   const results: ArchiveResult[] = docs.map((doc) => ({
