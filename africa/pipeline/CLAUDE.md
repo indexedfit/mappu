@@ -11,8 +11,11 @@ bun run src/index.ts "<url>" ["optional instruction"]
 # Orchestrator — enriches content + processes generations → slideshow videos
 bun run src/orchestrator/index.ts
 
-# Pinterest search (standalone)
+# Pinterest image search (standalone)
 bun run src/steps/pinterest.ts "Y2K tropical video game"
+
+# Internet Archive search (standalone) — free, no auth, supports movies/image/audio
+bun run src/steps/archive.ts "retro vintage advertising" image
 
 # Render slideshow from images (standalone, takes JSON input)
 bun run src/steps/render.ts '{"slides":[{"imagePath":"...","text":"overlay"}],"outputName":"test"}'
@@ -90,7 +93,8 @@ src/steps/analyze.ts        — ffmpeg frames every 3s + Groq Llama 4 Scout visi
 src/steps/comments.ts       — top 10 comments (TikTok via Apify, IG from scrape)
 src/steps/store.ts          — INSERT into postgres
 src/steps/generate.ts       — queue generation request
-src/steps/pinterest.ts      — search Pinterest via Apify, download images
+src/steps/pinterest.ts      — image search (Google Images → Pinterest), download images
+src/steps/archive.ts        — Internet Archive search + download (free, no auth, videos/images/audio)
 src/steps/render.ts         — render slideshow MP4 from images + text overlays via ffmpeg
 
 src/orchestrator/index.ts   — daemon: listens for new content/generations
@@ -104,5 +108,6 @@ data/media/                 — downloaded MP4s
 data/audio/                 — extracted MP3s
 data/frames/                — extracted video frames (JPEGs every 3s)
 data/pinterest/             — downloaded Pinterest images
+data/archive/               — downloaded Internet Archive thumbnails/files
 data/renders/               — rendered slideshow MP4s
 ```
