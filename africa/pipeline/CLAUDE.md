@@ -69,10 +69,22 @@ bun run src/steps/store.ts '<full context json>'
 2. `bun run src/steps/fal.ts '{"mode":"image-to-video","imagePath":"data/pinterest/img.jpg","prompt":"slow cinematic zoom, ambient particles","duration":"5","outputName":"animated_clip"}'`
 3. Optionally remix with audio/text: `bun run src/steps/remix.ts '{"videoPath":"data/renders/animated_clip.mp4","audioPath":"...","text":"overlay","outputName":"final"}'`
 
+### "Swap a character in a video"
+Best results come from the first-frame workflow:
+1. Download source video via pipeline (must be 3-10s, 720-2160px, max 200MB)
+2. Extract first frame: `ffmpeg -i data/media/source.mp4 -vframes 1 -q:v 2 first_frame.jpg`
+3. Edit the first frame to swap the character (use image gen or manual edit)
+4. Pass the edited frame + original character refs as elements:
+```
+bun run src/steps/fal.ts '{"mode":"video-to-video","videoPath":"data/media/source.mp4","prompt":"replace the person with @Element1, maintaining same movements and camera angles","elements":[{"frontalImagePath":"edited_frame.jpg","referenceImagePaths":["ref_angle1.jpg","ref_angle2.jpg"]}],"outputName":"swapped"}'
+```
+5. Tip: provide 3-5 reference images of the target character from different angles for best results
+
 ### "Edit/transform an existing video"
 1. Download source video via pipeline
-2. `bun run src/steps/fal.ts '{"mode":"video-to-video","videoPath":"data/media/source.mp4","prompt":"replace the person with an anime character","outputName":"edited"}'`
-3. Note: source video must be 3-10s, 720-2160px, max 200MB
+2. `bun run src/steps/fal.ts '{"mode":"video-to-video","videoPath":"data/media/source.mp4","prompt":"transform the scene into a watercolor painting style","outputName":"edited"}'`
+3. Use `referenceImageUrls` for style references: `@Image1`, `@Image2` in prompt
+4. Note: source video must be 3-10s, 720-2160px, max 200MB
 
 ### "Generate a video from text"
 1. `bun run src/steps/fal.ts '{"mode":"text-to-video","prompt":"a nostalgic computer room, CRT monitors glowing, VHS aesthetic","aspectRatio":"9:16","duration":"5","outputName":"generated"}'`

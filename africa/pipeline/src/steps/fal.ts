@@ -7,6 +7,13 @@ import { DATA_DIR, requireEnv } from "../env";
 
 export type FalMode = "image-to-video" | "text-to-video" | "video-to-video";
 
+export interface ElementRef {
+  referenceImageUrls?: string[];  // multiple angles of the character
+  frontalImageUrl?: string;       // front-facing shot (best results)
+  referenceImagePaths?: string[]; // local files — will be uploaded
+  frontalImagePath?: string;      // local file — will be uploaded
+}
+
 export interface FalOptions {
   mode: FalMode;
   prompt: string;
@@ -19,7 +26,11 @@ export interface FalOptions {
   videoPath?: string;       // local file — will be uploaded
   videoUrl?: string;        // or direct URL
   keepAudio?: boolean;
-  referenceImageUrls?: string[];  // style/character references for v2v edit
+  referenceImageUrls?: string[];  // style references (@Image1, @Image2 in prompt)
+  elements?: ElementRef[];        // character refs (@Element1, @Element2 in prompt)
+
+  // first-frame workflow: extract frame 0, use as basis for character swap
+  extractFirstFrame?: boolean;    // auto-extract first frame from video
 
   // common
   duration?: "5" | "10";   // seconds (default "5")
@@ -76,6 +87,40 @@ async function downloadVideo(url: string, outputPath: string): Promise<void> {
   await Bun.write(outputPath, await res.arrayBuffer());
 }
 
+/** Extract first frame from a video as JPEG */
+async function extractFirstFrame(videoPath: string): Promise<string> {
+  const { $ } = await import("bun");
+  const outputDir = join(DATA_DIR, "frames");
+  mkdirSync(outputDir, { recursive: true });
+  const framePath = join(outputDir, `first_frame_${Date.now()}.jpg`);
+  await $`ffmpeg -i ${videoPath} -vframes 1 -q:v 2 -y ${framePath} -loglevel warning`.quiet();
+  console.log(`  [fal] extracted first frame → ${framePath}`);
+  return framePath;
+}
+
+/** Upload an ElementRef's local files and return resolved URLs */
+async function resolveElement(el: ElementRef): Promise<{ reference_image_urls?: string[]; frontal_image_url?: string }> {
+  const resolved: any = {};
+
+  // Resolve frontal image
+  if (el.frontalImageUrl) {
+    resolved.frontal_image_url = el.frontalImageUrl;
+  } else if (el.frontalImagePath) {
+    resolved.frontal_image_url = await uploadFile(el.frontalImagePath);
+  }
+
+  // Resolve reference images
+  const refUrls: string[] = [...(el.referenceImageUrls || [])];
+  if (el.referenceImagePaths) {
+    for (const p of el.referenceImagePaths) {
+      refUrls.push(await uploadFile(p));
+    }
+  }
+  if (refUrls.length) resolved.reference_image_urls = refUrls;
+
+  return resolved;
+}
+
 // --- Main ---
 
 export async function falGenerate(opts: FalOptions): Promise<FalResult> {
@@ -93,6 +138,8 @@ export async function falGenerate(opts: FalOptions): Promise<FalResult> {
     outputName = `fal_${mode}_${Date.now()}`,
     keepAudio = false,
     referenceImageUrls,
+    elements,
+    extractFirstFrame: shouldExtractFirstFrame = false,
   } = opts;
 
   const modelId = MODELS[model][mode];
@@ -136,15 +183,38 @@ export async function falGenerate(opts: FalOptions): Promise<FalResult> {
       };
       break;
 
-    case "video-to-video":
-      if (!videoUrl) throw new Error("video-to-video requires videoPath or videoUrl");
+    case "video-to-video": {
+      if (!videoUrl && !opts.videoPath) throw new Error("video-to-video requires videoPath or videoUrl");
+
+      // First-frame workflow: extract frame 0 for reference
+      if (shouldExtractFirstFrame && opts.videoPath) {
+        const framePath = await extractFirstFrame(opts.videoPath);
+        console.log(`  [fal] first-frame workflow: use this frame as character reference`);
+        // Add as frontal reference if no elements provided
+        if (!elements?.length) {
+          console.log(`  [fal] tip: edit this frame to swap the character, then pass as element frontalImagePath`);
+        }
+      }
+
+      // Upload video if local
+      if (!videoUrl && opts.videoPath) {
+        videoUrl = await uploadFile(opts.videoPath);
+      }
+
+      // Resolve elements (character references)
+      const resolvedElements = elements?.length
+        ? await Promise.all(elements.map(resolveElement))
+        : undefined;
+
       input = {
         prompt,
         video_url: videoUrl,
         keep_audio: keepAudio,
         ...(referenceImageUrls?.length ? { image_urls: referenceImageUrls } : {}),
+        ...(resolvedElements?.length ? { elements: resolvedElements } : {}),
       };
       break;
+    }
 
     default:
       throw new Error(`Unknown mode: ${mode}`);
