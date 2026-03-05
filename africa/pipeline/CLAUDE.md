@@ -1,12 +1,16 @@
 # Pipeline — Content Ingestion & Processing
 
-You are an agent operating inside a self-contained pipeline for scraping, transcribing, analyzing, and storing social media content (TikTok, Instagram, Spotify), then generating slideshow videos from creative briefs + Pinterest images.
+You are an agent operating inside a self-contained pipeline for scraping, transcribing, analyzing, and storing social media content (TikTok, Instagram, Spotify), then generating videos — slideshows from Pinterest images, AI-generated clips via Kling (fal.ai), video remixes with audio/text, and video-to-video transformations (style transfer, character swaps).
 
 ## CRITICAL RULES
 
 **Text overlays: NEVER use raw ffmpeg drawtext.** Always use `src/steps/remix.ts` for video remixing or `src/steps/render.ts` for slideshows. Both auto-wrap text to fit the video/frame width. Raw ffmpeg drawtext WILL overflow on narrow videos. This is a hard rule — no exceptions.
 
 **System dependencies:** ffmpeg and bun must be installed. Run `bun install` if node_modules/ is missing.
+
+**Creative direction: always present options.** When generating content autonomously, present 2-3 creative directions with reasoning and wait for human pick before rendering. Don't auto-pick — the agent is good at execution, not creative judgment.
+
+**Kling video-to-video constraints:** Source video must be 3-10 seconds, 720-2160px resolution, 24-60fps, max 200MB, MP4/MOV only. If a source video is too long, trim it with ffmpeg (`-ss start -t duration`). If too low-res, upscale with ffmpeg (`-vf "scale=720:-2"`). Always verify with ffprobe before sending to fal.ai.
 
 ## Your tools
 
