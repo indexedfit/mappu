@@ -2,6 +2,12 @@
 
 You are an agent operating inside a self-contained pipeline for scraping, transcribing, analyzing, and storing social media content (TikTok, Instagram, Spotify), then generating slideshow videos from creative briefs + Pinterest images.
 
+## CRITICAL RULES
+
+**Text overlays: NEVER use raw ffmpeg drawtext.** Always use `src/steps/remix.ts` for video remixing or `src/steps/render.ts` for slideshows. Both auto-wrap text to fit the video/frame width. Raw ffmpeg drawtext WILL overflow on narrow videos. This is a hard rule — no exceptions.
+
+**System dependencies:** ffmpeg and bun must be installed. Run `bun install` if node_modules/ is missing.
+
 ## Your tools
 
 ```bash
@@ -11,14 +17,17 @@ bun run src/index.ts "<url>" ["optional instruction"]
 # Orchestrator — enriches content + processes generations → slideshow videos
 bun run src/orchestrator/index.ts
 
+# Remix a video — swap audio, add text overlay (text auto-wraps, never overflows)
+bun run src/steps/remix.ts '{"videoPath":"...","audioPath":"...","audioStartSec":30,"text":"overlay text","outputName":"my_remix"}'
+
+# Render slideshow from images (text auto-wraps, never overflows)
+bun run src/steps/render.ts '{"slides":[{"imagePath":"...","text":"overlay"}],"outputName":"test"}'
+
 # Pinterest image search (standalone)
 bun run src/steps/pinterest.ts "Y2K tropical video game"
 
 # Internet Archive search (standalone) — free, no auth, supports movies/image/audio
 bun run src/steps/archive.ts "retro vintage advertising" image
-
-# Render slideshow from images (standalone, takes JSON input)
-bun run src/steps/render.ts '{"slides":[{"imagePath":"...","text":"overlay"}],"outputName":"test"}'
 
 # Individual steps (read JSON from stdin or arg, output JSON)
 bun run src/steps/scrape.ts '{"url":"...","platform":"tiktok"}'
@@ -26,6 +35,29 @@ bun run src/steps/download.ts '{"url":"...","scrape":{"mediaUrls":["..."]}}'
 bun run src/steps/transcribe.ts '{"media":{"localPath":"..."}}'
 bun run src/steps/store.ts '<full context json>'
 ```
+
+## Playbook — common tasks
+
+### "Download this video and swap the music / add text"
+1. `bun run src/index.ts "<url>"` — downloads video to data/media/
+2. Find the downloaded file in data/media/ (latest .mp4)
+3. `bun run src/steps/remix.ts '{"videoPath":"data/media/xxx.mp4","audioPath":"/path/to/song.mp3","audioStartSec":30,"text":"your text here","outputName":"my_remix"}'`
+4. Output lands in data/renders/
+
+### "Make a slideshow from this concept"
+1. Search for images: `bun run src/steps/pinterest.ts "aesthetic query"` or `bun run src/steps/archive.ts "query" image`
+2. Render slideshow: `bun run src/steps/render.ts '{"slides":[...],"outputName":"name","audioPath":"/path/to/music.mp3","audioStartSec":60}'`
+3. Each slide: `{"imagePath":"...","text":"overlay text","durationSec":0.5}`
+
+### "Analyze this content and make something similar"
+1. `bun run src/index.ts "<url>" "instruction for what to generate"`
+2. `bun run src/orchestrator/index.ts` — enriches content, generates brief, searches Pinterest, renders slideshow
+3. Output video lands in data/renders/, generation record updated in DB
+
+### "Search for reference images"
+- Pinterest: `bun run src/steps/pinterest.ts "Y2K tropical aesthetic"`
+- Archive.org: `bun run src/steps/archive.ts "vintage advertising" image`
+- Both download images to local folders under data/
 
 ## When you receive a link
 
@@ -53,7 +85,7 @@ The orchestrator does three things:
 - Generates a `pinterestQuery` — a concise search term for finding matching visuals
 
 **Rendering** — after the brief is produced:
-- Searches Pinterest via Apify for images matching the visual direction
+- Searches Pinterest for images matching the visual direction
 - Downloads top images to data/pinterest/
 - Renders a slideshow MP4: images scaled to 1080x1920 (9:16), text overlays burned in, concatenated via ffmpeg
 - Stores output video path in `generations.output_urls`, pinterest pins in `output_meta`
@@ -95,6 +127,7 @@ src/steps/store.ts          — INSERT into postgres
 src/steps/generate.ts       — queue generation request
 src/steps/pinterest.ts      — image search (Google Images → Pinterest), download images
 src/steps/archive.ts        — Internet Archive search + download (free, no auth, videos/images/audio)
+src/steps/remix.ts          — remix video: swap audio + add text overlay (auto-wrapped)
 src/steps/render.ts         — render slideshow MP4 from images + text overlays via ffmpeg
 
 src/orchestrator/index.ts   — daemon: listens for new content/generations
@@ -109,5 +142,5 @@ data/audio/                 — extracted MP3s
 data/frames/                — extracted video frames (JPEGs every 3s)
 data/pinterest/             — downloaded Pinterest images
 data/archive/               — downloaded Internet Archive thumbnails/files
-data/renders/               — rendered slideshow MP4s
+data/renders/               — rendered slideshow MP4s + remixed videos
 ```

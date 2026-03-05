@@ -81,7 +81,7 @@ function buildTextFilter(
   inputLabel: string,
   outputLabel: string,
 ): string {
-  const fontSize = 60;
+  const fontSize = Math.min(60, Math.round(frameWidth / 14)); // scale to frame width
   const lineHeight = Math.round(fontSize * 1.4);
   const lines = wrapText(text, frameWidth, fontSize);
 
