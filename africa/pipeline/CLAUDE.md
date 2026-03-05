@@ -29,6 +29,11 @@ bun run src/steps/pinterest.ts "Y2K tropical video game"
 # Internet Archive search (standalone) — free, no auth, supports movies/image/audio
 bun run src/steps/archive.ts "retro vintage advertising" image
 
+# AI video generation via fal.ai (Kling models) — image-to-video, text-to-video, video-to-video edit
+bun run src/steps/fal.ts '{"mode":"image-to-video","imagePath":"...","prompt":"slow zoom, ambient motion","outputName":"animated"}'
+bun run src/steps/fal.ts '{"mode":"text-to-video","prompt":"a retro computer in a dark room","aspectRatio":"9:16","outputName":"retro_clip"}'
+bun run src/steps/fal.ts '{"mode":"video-to-video","videoPath":"...","prompt":"replace the person with a cartoon character","outputName":"edited"}'
+
 # Individual steps (read JSON from stdin or arg, output JSON)
 bun run src/steps/scrape.ts '{"url":"...","platform":"tiktok"}'
 bun run src/steps/download.ts '{"url":"...","scrape":{"mediaUrls":["..."]}}'
@@ -58,6 +63,20 @@ bun run src/steps/store.ts '<full context json>'
 - Pinterest: `bun run src/steps/pinterest.ts "Y2K tropical aesthetic"`
 - Archive.org: `bun run src/steps/archive.ts "vintage advertising" image`
 - Both download images to local folders under data/
+
+### "Generate a video clip from an image"
+1. Source or generate an image (pinterest, archive, or nano-banana image gen)
+2. `bun run src/steps/fal.ts '{"mode":"image-to-video","imagePath":"data/pinterest/img.jpg","prompt":"slow cinematic zoom, ambient particles","duration":"5","outputName":"animated_clip"}'`
+3. Optionally remix with audio/text: `bun run src/steps/remix.ts '{"videoPath":"data/renders/animated_clip.mp4","audioPath":"...","text":"overlay","outputName":"final"}'`
+
+### "Edit/transform an existing video"
+1. Download source video via pipeline
+2. `bun run src/steps/fal.ts '{"mode":"video-to-video","videoPath":"data/media/source.mp4","prompt":"replace the person with an anime character","outputName":"edited"}'`
+3. Note: source video must be 3-10s, 720-2160px, max 200MB
+
+### "Generate a video from text"
+1. `bun run src/steps/fal.ts '{"mode":"text-to-video","prompt":"a nostalgic computer room, CRT monitors glowing, VHS aesthetic","aspectRatio":"9:16","duration":"5","outputName":"generated"}'`
+2. Optionally chain with remix.ts for audio/text overlays
 
 ## When you receive a link
 
@@ -97,6 +116,7 @@ API keys in `.env` (loaded by `src/env.ts`). Required:
 - `DATABASE_URL` — Postgres (currently Neon)
 - `APIFY_TOKEN` — TikTok/Instagram scraping + Pinterest search
 - `GROQ_API_KEY` — Whisper transcription + Llama 4 Scout vision + enrichment/generation
+- `FAL_KEY` — fal.ai video generation (Kling models: image-to-video, text-to-video, video-to-video edit)
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — Spotify metadata (optional)
 
 ## Database
@@ -129,6 +149,7 @@ src/steps/pinterest.ts      — image search (Google Images → Pinterest), down
 src/steps/archive.ts        — Internet Archive search + download (free, no auth, videos/images/audio)
 src/steps/remix.ts          — remix video: swap audio + add text overlay (auto-wrapped)
 src/steps/render.ts         — render slideshow MP4 from images + text overlays via ffmpeg
+src/steps/fal.ts            — AI video gen via fal.ai (Kling): image-to-video, text-to-video, video-to-video edit
 
 src/orchestrator/index.ts   — daemon: listens for new content/generations
 src/orchestrator/enrich.ts  — LLM enrichment (hook, script, format, virality)
