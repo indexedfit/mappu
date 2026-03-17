@@ -115,7 +115,8 @@ export async function segmentPerson(opts: SegmentOptions): Promise<SegmentResult
 
   let mattePath = "";
   if (maskOut) {
-    mattePath = join(outputDir, `${outputName}_matte.mp4`);
+    // BiRefNet returns VP9/matroska — save as .webm to match actual container
+    mattePath = join(outputDir, `${outputName}_matte.webm`);
     console.log(`  [segment] downloading matte → ${mattePath}`);
     await $`curl -sL -o ${mattePath} ${maskOut}`.quiet();
   }
@@ -166,6 +167,11 @@ export async function composite(opts: CompositeOptions): Promise<CompositeResult
   } else if (opts.fgHeight) {
     sh = opts.fgHeight;
     sw = Math.round(fgW * (sh / fgH));
+  } else if (fgW >= w && fgH >= h) {
+    // fg is same size or larger than bg (e.g. Kling 1088x1904 onto 720x1280)
+    // Scale to bg dimensions exactly — preserves spatial pixel mapping for character swap
+    sw = w;
+    sh = h;
   } else {
     sw = Math.round(w * fgScale);
     sh = Math.round(h * fgScale);
