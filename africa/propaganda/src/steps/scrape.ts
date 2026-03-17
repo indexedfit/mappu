@@ -5,7 +5,7 @@ import { requireEnv } from "../env";
 // Actor IDs — tested and working
 const APIFY_ACTORS: Record<string, string> = {
   tiktok: "clockworks/free-tiktok-scraper",
-  instagram: "pratikdani/instagram-reels-scraper",
+  instagram: "apify/instagram-scraper",  // returns childPosts[] for carousels
 };
 
 export const scrape: Step = async (ctx) => {
@@ -35,7 +35,9 @@ export const scrape: Step = async (ctx) => {
       break;
     case "instagram":
       input = {
-        url: ctx.url,
+        directUrls: [ctx.url],
+        resultsLimit: 1,
+        resultsType: "posts",
       };
       break;
     default:
@@ -53,23 +55,50 @@ export const scrape: Step = async (ctx) => {
 
   const item = items[0] as Record<string, any>;
 
-  // Normalize across platforms.
-  // TikTok (clockworks): mediaUrls[], text, authorMeta, diggCount, playCount, musicMeta, videoMeta
-  // Instagram (pratikdani): videos[], description, user_posted, likes, video_view_count, audio{}
-  const mediaUrls = [
-    ...(item.mediaUrls || []),           // TikTok: Apify stores video here
-    ...(item.videos || []),              // IG: video CDN URLs
-    item.videoUrl,
-    item.videoPlayUrl,
-    ...(item.photos || []),
-    ...(item.displayUrl ? [item.displayUrl] : []),
-  ].filter(Boolean);
+  // Detect content type
+  const isVideo = !!(item.videoUrl || item.videoMeta || item.videos?.length || item.content_type === "Reel" || item.type === "Video");
+  const isCarousel = !!(item.type === "Sidecar" || (item.childPosts?.length && item.childPosts.length > 1));
+
+  // Extract media URLs — carousel gets ALL slides
+  let mediaUrls: string[];
+
+  if (isCarousel && item.childPosts?.length) {
+    // Carousel/sidecar: extract every child's media URL
+    mediaUrls = [];
+    for (const child of item.childPosts as Record<string, any>[]) {
+      if (child.type === "Video" && child.videoUrl) {
+        mediaUrls.push(child.videoUrl);
+      } else if (child.displayUrl) {
+        mediaUrls.push(child.displayUrl);
+      }
+    }
+    console.log(`    carousel: ${mediaUrls.length} slides from childPosts`);
+
+    // Fallback: if childPosts didn't have URLs, try images[]
+    if (!mediaUrls.length && item.images?.length) {
+      mediaUrls = [...item.images];
+      console.log(`    carousel: ${mediaUrls.length} slides from images[]`);
+    }
+  } else {
+    // Single post — video or image
+    mediaUrls = [
+      ...(item.mediaUrls || []),           // TikTok: Apify stores video here
+      ...(item.videos || []),              // IG: video CDN URLs
+      item.videoUrl,
+      item.videoPlayUrl,
+      ...(item.photos || []),
+      ...(item.images || []),
+      ...(item.displayUrl ? [item.displayUrl] : []),
+    ].filter(Boolean);
+  }
+
+  const contentType = isVideo ? "video"
+    : isCarousel ? "carousel"
+    : (item.photos?.length || item.displayUrl || item.images?.length) ? "image"
+    : "video";
 
   ctx.scrape = {
-    type: item.videoMeta || item.videos?.length || item.content_type === "Reel" ? "video"
-      : item.type === "Sidecar" || item.childPosts?.length ? "carousel"
-      : item.photos?.length || item.displayUrl ? "image"
-      : "video",
+    type: contentType,
     title: item.text || item.caption || item.title || item.description?.slice(0, 100),
     description: item.description || item.text || item.caption,
     author: item.authorMeta?.name || item.user_posted || item.ownerUsername,
@@ -85,7 +114,7 @@ export const scrape: Step = async (ctx) => {
     raw: item,
   };
 
-  console.log(`    type: ${ctx.scrape.type}`);
+  console.log(`    type: ${ctx.scrape.type} (${mediaUrls.length} media urls)`);
   console.log(`    title: "${(ctx.scrape.title || "").slice(0, 60)}"`);
   return ctx;
 };

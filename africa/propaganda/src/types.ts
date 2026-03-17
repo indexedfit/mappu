@@ -30,12 +30,19 @@ export interface Context {
     raw?: Record<string, unknown>;
   };
 
-  // Downloaded media
+  // Downloaded media (first/primary file)
   media?: {
     localPath: string;       // path to downloaded mp4/image
     mimeType: string;
     sizeBytes: number;
   };
+
+  // All downloaded files (carousel slides, etc.)
+  mediaFiles?: {
+    localPath: string;
+    mimeType: string;
+    sizeBytes: number;
+  }[];
 
   // Transcription
   transcription?: {

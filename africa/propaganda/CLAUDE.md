@@ -16,6 +16,10 @@ Agent for scraping, transcribing, and analyzing social media content, then gener
 - **Creative direction**: Present 2-3 options and wait for human pick before rendering.
 - **Kling constraints**: Source 3-10s, 720-2160px, ≤200MB, MP4/MOV. Motion control: `"video"` ≤30s, `"image"` ≤10s.
 - **Issue attachments**: ALWAYS upload key outputs to the Paperclip issue as attachments. Downloaded source videos, rendered outputs, extracted stills — anything someone reviewing the issue needs to see without SSH access. The issue is the record. Use the attachment upload API after each significant output.
+- **Carousel/slideshow detection**: Instagram carousels (type `Sidecar`) are handled automatically by the pipeline. `scrape.ts` uses `apify/instagram-scraper` which returns `childPosts[]` with ALL slides. `download.ts` downloads every slide and stores them in `ctx.mediaFiles[]`. When processing carousels manually or outside the pipeline, check `item.type === "Sidecar"` or `item.childPosts.length > 1`. Download EVERY slide — never just the first. For video posts (`type === "Video"`), download the `videoUrl` field, NOT the thumbnail/photo.
+- **yt-dlp first for videos**: For Instagram reels and TikTok videos, the pipeline uses yt-dlp first, falling back to Apify CDN URLs only if yt-dlp fails. yt-dlp is skipped for image posts and carousels (it can't download images). If running downloads manually outside the pipeline, always try `yt-dlp -o "data/media/%(title)s.%(ext)s" "<url>"` before resorting to Apify CDN fetch.
+- **Attachment MIME types**: When uploading `.mp4` files, always set explicit MIME type: `curl -F "file=@path.mp4;type=video/mp4"`. Without it, curl sends `application/octet-stream` which is rejected.
+- **Attachment verification**: After uploading an attachment, verify it's actually accessible by checking the issue's attachment list. Do NOT mark an issue as done until all claimed attachments are confirmed present.
 
 ## Short-Form Heuristics
 
